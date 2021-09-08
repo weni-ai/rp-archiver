@@ -33,5 +33,5 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: true
-          tags: 869898323958.dkr.ecr.us-east-1.amazonaws.com/push-backend:${{ steps.vars.outputs.tag }}
+          tags: 869898323958.dkr.ecr.us-east-1.amazonaws.com/rp-archiver:${{ steps.vars.outputs.tag }}
           no-cache: true
