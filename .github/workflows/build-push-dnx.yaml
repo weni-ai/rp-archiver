@@ -35,3 +35,20 @@ jobs:
           push: true
           tags: 869898323958.dkr.ecr.us-east-1.amazonaws.com/rp-archiver:${{ steps.vars.outputs.tag }}
           no-cache: true
+      - name: Check out Argo Manifests
+        uses: actions/checkout@master
+        with:
+          repository: Ilhasoft/kubernetes-manifests
+          token: ${{ secrets.TOKEN_CI }}
+      - name: Set variable tag for yq
+        run: |
+            echo "IMAGE_TAG=869898323958.dkr.ecr.us-east-1.amazonaws.com/rp-archiver:$(git rev-parse --short $GITHUB_SHA)" >> $GITHUB_ENV
+      - name: Update image deployment 01
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq e  '.spec.template.spec.containers[0].image = env(IMAGE_TAG)' -i rp-archiver/nonprod/deployment.yaml
+      - name: Commit & Push changes
+        uses: actions-js/push@master
+        with:
+          github_token: ${{ secrets.TOKEN_CI }}
+          repository: Ilhasoft/kubernetes-manifests
