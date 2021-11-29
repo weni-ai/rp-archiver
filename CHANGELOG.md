@@ -1,3 +1,12 @@
+v7.0.0
+----------
+ * Test on PG12 and 13
+
+v6.5.0
+----------
+ * Limit paths in archived runs to first 500 steps
+ * Use go 1.17
+
 v6.4.0
 ----------
  * 6.4.0 Release Candidate
