@@ -19,12 +19,17 @@ type Config struct {
 	KeepFiles  bool   `help:"whether we should keep local archive files after upload (default false)"`
 	UploadToS3 bool   `help:"whether we should upload archive to S3"`
 
-	ArchiveMessages  bool   `help:"whether we should archive messages"`
-	ArchiveRuns      bool   `help:"whether we should archive runs"`
-	RetentionPeriod  int    `help:"the number of days to keep before archiving"`
-	Delete           bool   `help:"whether to delete messages and runs from the db after archival (default false)"`
-	ExitOnCompletion bool   `help:"whether archiver should exit after completing archiving job (default false)"`
-	StartTime        string `help:"what time archive jobs should run in UTC HH:MM "`
+	ArchiveMessages     bool   `help:"whether we should archive messages"`
+	ArchiveRuns         bool   `help:"whether we should archive runs"`
+	RetentionPeriod     int    `help:"the number of days to keep before archiving"`
+	Delete              bool   `help:"whether to delete messages and runs from the db after archival (default false)"`
+	ExitOnCompletion    bool   `help:"whether archiver should exit after completing archiving job (default false)"`
+	StartTime           string `help:"what time archive jobs should run in UTC HH:MM "`
+	SingleMonth         bool   `help:"wheter archiver should archive only a single month"`
+	OrgID               string `help:"org id"`
+	Year                string `help:"year that archive should be created ex: 2022"`
+	Month               string `help:"month that archive should be created ex: 01"`
+	KeepFilesDontUpload bool   `help:"keep files and don't upload to s3"`
 }
 
 // NewConfig returns a new default configuration object
@@ -52,6 +57,7 @@ func NewConfig() *Config {
 		Delete:           false,
 		ExitOnCompletion: false,
 		StartTime:        "00:01",
+		SingleMonth:      false,
 	}
 
 	return &config

@@ -96,6 +96,12 @@ FROM orgs_org o
 WHERE o.is_active = TRUE order by o.id
 `
 
+const selectOrg = `
+SELECT o.id, o.name, o.created_on, o.is_anon
+FROM orgs_org o
+WHERE o.id = $1
+`
+
 // GetActiveOrgs returns the active organizations sorted by id
 func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -118,6 +124,20 @@ func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error
 	}
 
 	return orgs, nil
+}
+
+func GetOrg(ctx context.Context, db *sqlx.DB, conf *Config, orgID string) (*Org, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	var orgs []*Org
+	err := db.SelectContext(ctx, &orgs, selectOrg, orgID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error fetching org for id: %s", orgID)
+	}
+	if len(orgs) > 0 {
+		return orgs[0], nil
+	}
+	return nil, nil
 }
 
 const lookupOrgArchives = `
@@ -975,4 +995,26 @@ func ArchiveOrg(ctx context.Context, now time.Time, config *Config, db *sqlx.DB,
 	}
 
 	return created, deleted, nil
+}
+
+func ArchiveOrgSingleMonth(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, org Org, year string, month string, archiveType ArchiveType) (*Archive, error) {
+	inputDate := fmt.Sprintf("%s-%s-01", year, month)
+	startDate, err := time.Parse("2006-01-02", inputDate)
+	if err != nil {
+		return nil, err
+	}
+	archive := &Archive{
+		Org:         org,
+		OrgID:       org.ID,
+		StartDate:   startDate,
+		ArchiveType: archiveType,
+		Period:      MonthPeriod,
+	}
+
+	err = createArchives(ctx, db, config, s3Client, org, []*Archive{archive})
+	if err != nil {
+		return nil, err
+	}
+
+	return archive, nil
 }

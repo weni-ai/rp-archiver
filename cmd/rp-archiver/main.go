@@ -20,8 +20,10 @@ func main() {
 	loader := ezconf.NewLoader(&config, "archiver", "Archives RapidPro runs and msgs to S3", []string{"archiver.toml"})
 	loader.MustLoad()
 
-	if config.KeepFiles && !config.UploadToS3 {
-		logrus.Fatal("cannot delete archives and also not upload to s3")
+	if !config.KeepFilesDontUpload {
+		if config.KeepFiles && !config.UploadToS3 {
+			logrus.Fatal("cannot delete archives and also not upload to s3")
+		}
 	}
 
 	// configure our logger
@@ -77,6 +79,47 @@ func main() {
 	err = archives.EnsureTempArchiveDirectory(config.TempDir)
 	if err != nil {
 		logrus.WithError(err).Fatal("cannot write to temp directory")
+	}
+
+	if config.SingleMonth {
+		if config.OrgID == "" {
+			logrus.Fatal("on single month archive mode, argument OrgID should be provided")
+		}
+		if config.Year == "" {
+			logrus.Fatal("on single month archive mode, argument Year should be provided ex: year=2022")
+		}
+		if config.Month == "" {
+			logrus.Fatal("on single month archive mode, argument Month should be provided ex: month=01")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		org, err := archives.GetOrg(ctx, db, config, config.OrgID)
+		cancel()
+		if err != nil {
+			logrus.WithError(err).Fatal("error getting org for id ", config.OrgID)
+		}
+		if org == nil {
+			logrus.Fatal("couldn't find org for id ", config.OrgID)
+		}
+
+		ctx, cancel = context.WithTimeout(context.Background(), time.Minute*30)
+
+		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+		if config.ArchiveMessages {
+			_, err = archives.ArchiveOrgSingleMonth(ctx, db, config, s3Client, *org, config.Year, config.Month, archives.MessageType)
+			if err != nil {
+				log.WithError(err).WithField("archive_type", archives.MessageType).Error("error archiving org messages")
+			}
+		}
+
+		if config.ArchiveRuns {
+			_, err = archives.ArchiveOrgSingleMonth(ctx, db, config, s3Client, *org, config.Year, config.Month, archives.RunType)
+			if err != nil {
+				log.WithError(err).WithField("archive_type", archives.RunType).Error("error archiving org runs")
+			}
+		}
+
+		cancel()
+		os.Exit(0)
 	}
 
 	for {
