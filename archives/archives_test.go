@@ -265,7 +265,7 @@ func TestWriteArchiveToDB(t *testing.T) {
 	task := tasks[0]
 	task.Dailies = []*Archive{existing[0], existing[1]}
 
-	err = WriteArchiveToDB(ctx, db, task)
+	err = WriteArchiveToDB(ctx, db, task, false)
 
 	assert.NoError(t, err)
 	assert.Equal(t, 5, task.ID)

@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -396,9 +397,36 @@ func BuildRollupArchive(ctx context.Context, db *sqlx.DB, conf *Config, s3Client
 			continue
 		}
 
-		reader, err := GetS3File(ctx, s3Client, daily.URL)
-		if err != nil {
-			return errors.Wrapf(err, "error reading S3 URL: %s", daily.URL)
+		var reader io.ReadCloser
+
+		if s3Client != nil {
+			reader, err = GetS3File(ctx, s3Client, daily.URL)
+			if err != nil {
+				return errors.Wrapf(err, "error reading S3 URL: %s", daily.URL)
+			}
+		} else {
+
+			filename := fmt.Sprintf("%s_%d_%s%d%02d%02d_", monthlyArchive.ArchiveType, monthlyArchive.Org.ID, DayPeriod, daily.StartDate.Year(), daily.StartDate.Month(), daily.StartDate.Day())
+
+			filePath := conf.TempDir + "/" + filename + "*"
+			matches, err := filepath.Glob(filePath)
+			if err != nil {
+				return errors.Wrapf(err, "error searching file")
+			}
+
+			if len(matches) <= 0 {
+				return errors.New("file not found")
+			}
+			if len(matches) > 1 {
+				return errors.New("more than one file matches, should be only one")
+			}
+
+			fileContent, err := ioutil.ReadFile(matches[0])
+			if err != nil {
+				return errors.Wrapf(err, "error reading temp file: %s", matches[0])
+			}
+			rdr := strings.NewReader(string(fileContent))
+			reader = io.NopCloser(rdr)
 		}
 
 		// set up our reader to calculate our hash along the way
@@ -621,6 +649,26 @@ VALUES(:archive_type, :org_id, :created_on, :start_date, :period, :record_count,
 RETURNING id
 `
 
+const upsertArchive = `
+INSERT INTO archives_archive(archive_type, org_id, created_on, start_date, period, record_count, size, hash, url, needs_deletion, build_time, rollup_id)
+VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT (org_id, archive_type, start_date, period) DO UPDATE
+SET 
+	archive_type = $1,
+  org_id = $2,
+  created_on = $3,
+  start_date = $4,
+  period = $5,
+  record_count = $6,
+  size = $7,
+  hash = $8,
+  url = $9,
+  needs_deletion = $10,
+  build_time = $11,
+  rollup_id = $12 
+RETURNING id
+`
+
 const updateRollups = `
 UPDATE archives_archive 
 SET rollup_id = $1 
@@ -628,7 +676,7 @@ WHERE ARRAY[id] <@ $2
 `
 
 // WriteArchiveToDB write an archive to the Database
-func WriteArchiveToDB(ctx context.Context, db *sqlx.DB, archive *Archive) error {
+func WriteArchiveToDB(ctx context.Context, db *sqlx.DB, archive *Archive, isUpsert bool) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -640,10 +688,24 @@ func WriteArchiveToDB(ctx context.Context, db *sqlx.DB, archive *Archive) error 
 		return errors.Wrapf(err, "error starting transaction")
 	}
 
-	rows, err := tx.NamedQuery(insertArchive, archive)
-	if err != nil {
-		tx.Rollback()
-		return errors.Wrapf(err, "error inserting archive")
+	var rows *sqlx.Rows
+
+	var q string
+	if isUpsert {
+		q = upsertArchive
+		rows, err = tx.Queryx(q, archive.ArchiveType, archive.OrgID, archive.CreatedOn, archive.StartDate, archive.Period,
+			archive.RecordCount, archive.Size, archive.Hash, archive.URL, archive.NeedsDeletion, archive.BuildTime, archive.Rollup)
+		if err != nil {
+			tx.Rollback()
+			return errors.Wrapf(err, "error upserting archive")
+		}
+	} else {
+		q = insertArchive
+		rows, err = tx.NamedQuery(q, archive)
+		if err != nil {
+			tx.Rollback()
+			return errors.Wrapf(err, "error inserting archive")
+		}
 	}
 
 	rows.Next()
@@ -793,7 +855,7 @@ func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3
 		}
 	}
 
-	err = WriteArchiveToDB(ctx, db, archive)
+	err = WriteArchiveToDB(ctx, db, archive, false)
 	if err != nil {
 		return errors.Wrap(err, "error writing record to db")
 	}
@@ -874,7 +936,7 @@ func RollupOrgArchives(ctx context.Context, now time.Time, config *Config, db *s
 			}
 		}
 
-		err = WriteArchiveToDB(ctx, db, archive)
+		err = WriteArchiveToDB(ctx, db, archive, false)
 		if err != nil {
 			log.WithError(err).Error("error writing record to db")
 			continue
@@ -1017,4 +1079,105 @@ func ArchiveOrgSingleMonth(ctx context.Context, db *sqlx.DB, config *Config, s3C
 	}
 
 	return archive, nil
+}
+
+func GetMissingDailyArchivesFromMonth(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, year string, month string) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	inputDate := fmt.Sprintf("%s-%s-01 00:00:00", year, month)
+	startDate, err := time.Parse("2006-01-02 15:04:05", inputDate)
+	if err != nil {
+		return nil, err
+	}
+	endDate := startDate.AddDate(0, 1, 0).Add(time.Nanosecond * -1)
+	return GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType)
+}
+
+func RollupArchives(ctx context.Context, config *Config, db *sqlx.DB, s3Client s3iface.S3API, org Org, archiveType ArchiveType, startDate time.Time, endDate time.Time) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Hour*3)
+	defer cancel()
+
+	log := logrus.WithFields(logrus.Fields{
+		"org":    org.Name,
+		"org_id": org.ID,
+	})
+	created := make([]*Archive, 0, 1)
+
+	archive := &Archive{
+		Org:         org,
+		OrgID:       org.ID,
+		StartDate:   startDate,
+		ArchiveType: archiveType,
+		Period:      MonthPeriod,
+	}
+
+	log.WithFields(logrus.Fields{
+		"start_date":   archive.StartDate,
+		"archive_type": archive.ArchiveType,
+	})
+	start := time.Now()
+	log.Info("starting rollup")
+
+	err := BuildRollupArchive(ctx, db, config, s3Client, archive, time.Now(), org, archiveType)
+	if err != nil {
+		log.WithError(err).Error("error building monthly archive")
+		return nil, err
+	}
+
+	if config.UploadToS3 {
+		err = UploadArchive(ctx, s3Client, config.S3Bucket, archive)
+		if err != nil {
+			log.WithError(err).Error("error writing archive to s3")
+			return nil, err
+		}
+	}
+
+	err = WriteArchiveToDB(ctx, db, archive, true)
+	if err != nil {
+		log.WithError(err).Error("error writing archive to db")
+		return nil, err
+	}
+
+	if !config.KeepFiles {
+		err := DeleteArchiveFile(archive)
+		if err != nil {
+			log.WithError(err).Error("error deleting temporary file")
+			return nil, err
+		}
+	}
+
+	log.WithFields(logrus.Fields{
+		"id":           archive.ID,
+		"record_count": archive.RecordCount,
+		"elapsed":      time.Since(start),
+	}).Info("rollup complete")
+	created = append(created, archive)
+
+	return created, nil
+}
+
+func ArchiveRollupOrgSingleMonth(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, org Org, year string, month string, archiveType ArchiveType) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	inputDate := fmt.Sprintf("%s-%s-01 00:00:00", year, month)
+	startDate, err := time.Parse("2006-01-02 15:04:05", inputDate)
+	if err != nil {
+		return nil, err
+	}
+	endDate := startDate.AddDate(0, 1, 0).Add(time.Nanosecond * -1)
+
+	dailies, err := GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType)
+	if err != nil {
+		return nil, err
+	}
+
+	err = createArchives(ctx, db, config, s3Client, org, dailies)
+	if err != nil {
+		return nil, err
+	}
+
+	RollupArchives(ctx, config, db, s3Client, org, archiveType, startDate, endDate)
+
+	return dailies, nil
 }
