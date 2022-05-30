@@ -142,20 +142,17 @@ func GetCurrentArchives(ctx context.Context, db *sqlx.DB, org Org, archiveType A
 
 const lookupArchivesNeedingDeletion = `
 SELECT id, org_id, start_date::timestamp with time zone as start_date, period, archive_type, hash, size, record_count, url, rollup_id, needs_deletion 
-FROM archives_archive WHERE org_id = $1 AND archive_type = $2 AND needs_deletion = TRUE AND start_date BETWEEN $3 AND $4
+FROM archives_archive WHERE org_id = $1 AND archive_type = $2 AND needs_deletion = TRUE
 ORDER BY start_date asc, period desc
 `
 
 // GetArchivesNeedingDeletion returns all the archives which need to be deleted
-func GetArchivesNeedingDeletion(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, now time.Time) ([]*Archive, error) {
+func GetArchivesNeedingDeletion(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType) ([]*Archive, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	archives := make([]*Archive, 0, 1)
-	endDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -org.RetentionPeriod)
-	orgUTC := org.CreatedOn.In(time.UTC)
-	startDate := time.Date(orgUTC.Year(), orgUTC.Month(), orgUTC.Day(), 0, 0, 0, 0, time.UTC)
-	err := db.SelectContext(ctx, &archives, lookupArchivesNeedingDeletion, org.ID, archiveType, startDate, endDate)
+	err := db.SelectContext(ctx, &archives, lookupArchivesNeedingDeletion, org.ID, archiveType)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, errors.Wrapf(err, "error selecting archives needing deletion for org: %d and type: %s", org.ID, archiveType)
 	}
@@ -905,7 +902,7 @@ var deleteTransactionSize = 100
 // DeleteArchivedOrgRecords deletes all the records for the passeg in org based on archives already created
 func DeleteArchivedOrgRecords(ctx context.Context, now time.Time, config *Config, db *sqlx.DB, s3Client s3iface.S3API, org Org, archiveType ArchiveType) ([]*Archive, error) {
 	// get all the archives that haven't yet been deleted
-	archives, err := GetArchivesNeedingDeletion(ctx, db, org, archiveType, now)
+	archives, err := GetArchivesNeedingDeletion(ctx, db, org, archiveType)
 	if err != nil {
 		return nil, fmt.Errorf("error finding archives needing deletion '%s'", archiveType)
 	}
