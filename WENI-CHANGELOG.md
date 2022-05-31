@@ -1,3 +1,7 @@
+1.2.2-archiver-7.1.1
+----------
+ * No longer consider retention time on delete operation
+
 1.2.1-archiver-7.1.1
 ----------
  * Merge tag v7.1.1 from nyaruka into 1.2.0-archiver-7.1.0
