@@ -1,3 +1,28 @@
+v7.2.0
+----------
+ * Tweak README
+
+v7.1.6
+----------
+ * Stop setting delete_reason on runs before deletion
+
+v7.1.5
+----------
+ * Stop updating msgs_msg.delete_reason which is no longer needed
+
+v7.1.4
+----------
+ * Record flow on msgs
+
+v7.1.3
+----------
+ * Remove deletion of recent runs as these are no longer created
+
+v7.1.2
+----------
+ * Use run status instead of is_active and exit_type
+ * No longer include events in run archives
+
 v7.1.1
 ----------
  * Remove references to flowrun.parent_id which is no longer set by mailroom

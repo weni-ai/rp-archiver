@@ -12,6 +12,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	RunStatusActive      = "A"
+	RunStatusWaiting     = "W"
+	RunStatusCompleted   = "C"
+	RunStatusExpired     = "X"
+	RunStatusInterrupted = "I"
+	RunStatusFailed      = "F"
+)
+
 const lookupFlowRuns = `
 SELECT rec.exited_on, row_to_json(rec)
 FROM (
@@ -29,24 +38,15 @@ FROM (
 		SELECT key, jsonb_build_object('name', value -> 'name', 'value', value -> 'value', 'input', value -> 'input', 'time', (value -> 'created_on')::text::timestamptz, 'category', value -> 'category', 'node', value -> 'node_uuid') as value
 		FROM jsonb_each(fr.results::jsonb)) AS values_data
 	 ) as values,
-	 CASE
-		WHEN $1
-			THEN '[]'::jsonb
-		ELSE
-			coalesce(fr.events, '[]'::jsonb)
-	 END AS events,
      fr.created_on,
      fr.modified_on,
 	 fr.exited_on,
      CASE
-        WHEN exit_type = 'C'
-          THEN 'completed'
-        WHEN exit_type = 'I'
-          THEN 'interrupted'
-        WHEN exit_type = 'E'
-          THEN 'expired'
-        ELSE
-          null
+        WHEN status = 'C' THEN 'completed'
+        WHEN status = 'I' THEN 'interrupted'
+        WHEN status = 'X' THEN 'expired'
+        WHEN status = 'F' THEN 'failed'
+        ELSE NULL
 	 END as exit_type,
  	 a.username as submitted_by
 
@@ -55,7 +55,7 @@ FROM (
      JOIN LATERAL (SELECT uuid, name FROM flows_flow WHERE flows_flow.id = fr.flow_id) AS flow_struct ON True
      JOIN LATERAL (SELECT uuid, name FROM contacts_contact cc WHERE cc.id = fr.contact_id) AS contact_struct ON True
    
-   WHERE fr.org_id = $2 AND fr.modified_on >= $3 AND fr.modified_on < $4
+   WHERE fr.org_id = $1 AND fr.modified_on >= $2 AND fr.modified_on < $3
    ORDER BY fr.modified_on ASC, id ASC
 ) as rec;
 `
@@ -63,7 +63,7 @@ FROM (
 // writeRunRecords writes the runs in the archive's date range to the passed in writer
 func writeRunRecords(ctx context.Context, db *sqlx.DB, archive *Archive, writer *bufio.Writer) (int, error) {
 	var rows *sqlx.Rows
-	rows, err := db.QueryxContext(ctx, lookupFlowRuns, archive.Org.IsAnon, archive.Org.ID, archive.StartDate, archive.endDate())
+	rows, err := db.QueryxContext(ctx, lookupFlowRuns, archive.Org.ID, archive.StartDate, archive.endDate())
 	if err != nil {
 		return 0, errors.Wrapf(err, "error querying run records for org: %d", archive.Org.ID)
 	}
@@ -93,22 +93,11 @@ func writeRunRecords(ctx context.Context, db *sqlx.DB, archive *Archive, writer 
 }
 
 const selectOrgRunsInRange = `
-SELECT fr.id, fr.is_active
+SELECT fr.id, fr.status
 FROM flows_flowrun fr
 LEFT JOIN contacts_contact cc ON cc.id = fr.contact_id
 WHERE fr.org_id = $1 AND fr.modified_on >= $2 AND fr.modified_on < $3
 ORDER BY fr.modified_on ASC, fr.id ASC
-`
-
-const setRunDeleteReason = `
-UPDATE flows_flowrun
-SET delete_reason = 'A' 
-WHERE id IN(?)
-`
-
-const deleteRecentRuns = `
-DELETE FROM flows_flowpathrecentrun 
-WHERE run_id IN(?)
 `
 
 const deleteRuns = `
@@ -154,18 +143,18 @@ func DeleteArchivedRuns(ctx context.Context, config *Config, db *sqlx.DB, s3Clie
 	defer rows.Close()
 
 	var runID int64
-	var isActive bool
+	var status string
 	runCount := 0
 	runIDs := make([]int64, 0, archive.RecordCount)
 	for rows.Next() {
-		err = rows.Scan(&runID, &isActive)
+		err = rows.Scan(&runID, &status)
 		if err != nil {
 			return err
 		}
 
 		// if this run is still active, something has gone wrong, throw an error
-		if isActive {
-			return fmt.Errorf("run %d in archive is still active", runID)
+		if status == RunStatusActive || status == RunStatusWaiting {
+			return fmt.Errorf("run #%d in archive hadn't exited", runID)
 		}
 
 		// increment our count
@@ -195,19 +184,7 @@ func DeleteArchivedRuns(ctx context.Context, config *Config, db *sqlx.DB, s3Clie
 			return err
 		}
 
-		// first update our delete_reason
-		err = executeInQuery(ctx, tx, setRunDeleteReason, idBatch)
-		if err != nil {
-			return errors.Wrap(err, "error updating delete reason")
-		}
-
-		// any recent runs
-		err = executeInQuery(ctx, tx, deleteRecentRuns, idBatch)
-		if err != nil {
-			return errors.Wrap(err, "error deleting recent runs")
-		}
-
-		// finally, delete our runs
+		// delete our runs
 		err = executeInQuery(ctx, tx, deleteRuns, idBatch)
 		if err != nil {
 			return errors.Wrap(err, "error deleting runs")
