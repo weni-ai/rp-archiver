@@ -3,6 +3,7 @@ name: Build Archiver in Shared (Push Tag)
 on:
   push:
     tags:
+      - '*.*.*-staging'
       - '*.*.*-develop'
 
 jobs:
