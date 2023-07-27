@@ -8,63 +8,57 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/jmoiron/sqlx"
+	"github.com/nyaruka/gocommon/dates"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	visibilityDeletedByUser   = "D"
+	visibilityDeletedBySender = "X"
 )
 
 const lookupMsgs = `
 SELECT rec.visibility, row_to_json(rec) FROM (
 	SELECT
-	  mm.id,
-	  broadcast_id as broadcast,
-	  row_to_json(contact) as contact,
-	  CASE WHEN oo.is_anon = False THEN ccu.identity ELSE null END as urn,
-	  row_to_json(channel) as channel,
-	  CASE WHEN direction = 'I' THEN 'in'
-		WHEN direction = 'O' THEN 'out'
+		mm.id,
+		broadcast_id as broadcast,
+		row_to_json(contact) as contact,
+		CASE WHEN oo.is_anon = FALSE THEN ccu.identity ELSE NULL END AS urn,
+		row_to_json(channel) as channel,
+		row_to_json(flow) as flow,
+		CASE WHEN direction = 'I' THEN 'in' WHEN direction = 'O' THEN 'out' ELSE NULL END AS direction,
+		CASE WHEN msg_type = 'F' THEN 'flow' WHEN msg_type = 'V' THEN 'ivr' WHEN msg_type = 'I' THEN 'inbox' ELSE NULL END AS "type",
+		CASE 
+			WHEN status = 'I' THEN 'initializing'
+			WHEN status = 'P' THEN 'queued'
+			WHEN status = 'Q' THEN 'queued'
+			WHEN status = 'W' THEN 'wired'
+			WHEN status = 'D' THEN 'delivered'
+			WHEN status = 'H' THEN 'handled'
+			WHEN status = 'E' THEN 'errored'
+			WHEN status = 'F' THEN 'failed'
+			WHEN status = 'S' THEN 'sent'
+			WHEN status = 'R' THEN 'resent'
 		ELSE NULL
-	  END as direction,
-	  CASE WHEN msg_type = 'F'
-		THEN 'flow'
-	  WHEN msg_type = 'V'
-		THEN 'ivr'
-	  WHEN msg_type = 'I'
-		THEN 'inbox'
-	  ELSE NULL
-	  END as "type",
-	  CASE when status = 'I' then 'initializing'
-		WHEN status = 'P' then 'queued'
-		WHEN status = 'Q' then 'queued'
-		WHEN status = 'W' then 'wired'
-		WHEN status = 'D' then 'delivered'
-		WHEN status = 'H' then 'handled'
-		WHEN status = 'E' then 'errored'
-		WHEN status = 'F' then 'failed'
-		WHEN status = 'S' then 'sent'
-		WHEN status = 'R' then 'resent'
-		ELSE NULL
-	  END as status,
-	
-	  CASE WHEN visibility = 'V' THEN 'visible'
-		WHEN visibility = 'A' THEN 'archived'
-		WHEN visibility = 'D' THEN 'deleted'
-		ELSE NULL
-		END as visibility,
-	  text,
-	  (select coalesce(jsonb_agg(attach_row), '[]'::jsonb) FROM (select attach_data.attachment[1] as content_type, attach_data.attachment[2] as url FROM (select regexp_matches(unnest(attachments), '^(.*?):(.*)$') attachment) as attach_data) as attach_row) as attachments,
-	  labels_agg.data as labels,
-	  mm.created_on as created_on,
-	  sent_on,
-	  mm.modified_on as modified_on
+		END as status,
+		CASE WHEN visibility = 'V' THEN 'visible' WHEN visibility = 'A' THEN 'archived' WHEN visibility = 'D' THEN 'deleted' WHEN visibility = 'X' THEN 'deleted' ELSE NULL END as visibility,
+		text,
+		(select coalesce(jsonb_agg(attach_row), '[]'::jsonb) FROM (select attach_data.attachment[1] as content_type, attach_data.attachment[2] as url FROM (select regexp_matches(unnest(attachments), '^(.*?):(.*)$') attachment) as attach_data) as attach_row) as attachments,
+		labels_agg.data as labels,
+		mm.created_on as created_on,
+		sent_on,
+		mm.modified_on as modified_on
 	FROM msgs_msg mm 
-	  JOIN orgs_org oo ON mm.org_id = oo.id
-	  JOIN LATERAL (select uuid, name from contacts_contact cc where cc.id = mm.contact_id) as contact ON True
-	  LEFT JOIN contacts_contacturn ccu ON mm.contact_urn_id = ccu.id
-	  LEFT JOIN LATERAL (select uuid, name from channels_channel ch where ch.id = mm.channel_id) as channel ON True
-	  LEFT JOIN LATERAL (select coalesce(jsonb_agg(label_row), '[]'::jsonb) as data from (select uuid, name from msgs_label ml INNER JOIN msgs_msg_labels mml ON ml.id = mml.label_id AND mml.msg_id = mm.id) as label_row) as labels_agg ON True
+		JOIN orgs_org oo ON mm.org_id = oo.id
+		JOIN LATERAL (select uuid, name from contacts_contact cc where cc.id = mm.contact_id) as contact ON True
+		LEFT JOIN contacts_contacturn ccu ON mm.contact_urn_id = ccu.id
+		LEFT JOIN LATERAL (select uuid, name from channels_channel ch where ch.id = mm.channel_id) as channel ON True
+		LEFT JOIN LATERAL (select uuid, name from flows_flow f where f.id = mm.flow_id) as flow ON True
+		LEFT JOIN LATERAL (select coalesce(jsonb_agg(label_row), '[]'::jsonb) as data from (select uuid, name from msgs_label ml INNER JOIN msgs_msg_labels mml ON ml.id = mml.label_id AND mml.msg_id = mm.id) as label_row) as labels_agg ON True
 
-	  WHERE mm.org_id = $1 AND mm.created_on >= $2 AND mm.created_on < $3
-	ORDER BY created_on ASC, id ASC) rec; 
+	WHERE mm.org_id = $1 AND mm.created_on >= $2 AND mm.created_on < $3
+ORDER BY created_on ASC, id ASC) rec; 
 `
 
 // writeMessageRecords writes the messages in the archive's date range to the passed in writer
@@ -107,12 +101,6 @@ WHERE mm.org_id = $1 AND mm.created_on >= $2 AND mm.created_on < $3
 ORDER BY mm.created_on ASC, mm.id ASC
 `
 
-const setMessageDeleteReason = `
-UPDATE msgs_msg 
-SET delete_reason = 'A' 
-WHERE id IN(?)
-`
-
 const deleteMessageLogs = `
 DELETE FROM channels_channellog 
 WHERE msg_id IN(?)
@@ -136,7 +124,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 	outer, cancel := context.WithTimeout(ctx, time.Hour*3)
 	defer cancel()
 
-	start := time.Now()
+	start := dates.Now()
 	log := logrus.WithFields(logrus.Fields{
 		"id":           archive.ID,
 		"org_id":       archive.OrgID,
@@ -177,7 +165,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 		msgIDs = append(msgIDs, msgID)
 
 		// keep track of the number of visible messages, ie, not deleted
-		if visibility != "D" {
+		if visibility != visibilityDeletedByUser && visibility != visibilityDeletedBySender {
 			visibleCount++
 		}
 	}
@@ -196,7 +184,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 		ctx, cancel := context.WithTimeout(ctx, time.Minute*15)
 		defer cancel()
 
-		start := time.Now()
+		start := dates.Now()
 
 		// start our transaction
 		tx, err := db.BeginTxx(ctx, nil)
@@ -204,13 +192,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 			return err
 		}
 
-		// first update our delete_reason
-		err = executeInQuery(ctx, tx, setMessageDeleteReason, idBatch)
-		if err != nil {
-			return errors.Wrap(err, "error updating delete reason")
-		}
-
-		// now delete any channel logs
+		// first delete any channel logs
 		err = executeInQuery(ctx, tx, deleteMessageLogs, idBatch)
 		if err != nil {
 			return errors.Wrap(err, "error removing channel logs")
@@ -234,7 +216,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 			return errors.Wrap(err, "error committing message delete transaction")
 		}
 
-		log.WithField("elapsed", time.Since(start)).WithField("count", len(idBatch)).Debug("deleted batch of messages")
+		log.WithField("elapsed", dates.Since(start)).WithField("count", len(idBatch)).Debug("deleted batch of messages")
 
 		cancel()
 	}
@@ -242,7 +224,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 	outer, cancel = context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	deletedOn := time.Now()
+	deletedOn := dates.Now()
 
 	// all went well! mark our archive as no longer needing deletion
 	_, err = db.ExecContext(outer, setArchiveDeleted, archive.ID, deletedOn)
@@ -252,7 +234,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 	archive.NeedsDeletion = false
 	archive.DeletedOn = &deletedOn
 
-	logrus.WithField("elapsed", time.Since(start)).Info("completed deleting messages")
+	logrus.WithField("elapsed", dates.Since(start)).Info("completed deleting messages")
 
 	return nil
 }
@@ -274,7 +256,7 @@ LIMIT 1000000;
 
 // DeleteBroadcasts deletes all broadcasts older than 90 days for the passed in org which have no active messages on them
 func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sqlx.DB, org Org) error {
-	start := time.Now()
+	start := dates.Now()
 	threshhold := now.AddDate(0, 0, -org.RetentionPeriod)
 
 	rows, err := db.QueryxContext(ctx, selectOldOrgBroadcasts, org.ID, threshhold)
@@ -290,7 +272,7 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 		}
 
 		// been deleting this org more than an hour? thats enough for today, exit out
-		if time.Since(start) > time.Hour {
+		if dates.Since(start) > time.Hour {
 			break
 		}
 
@@ -363,7 +345,7 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 
 	if count > 0 {
 		logrus.WithFields(logrus.Fields{
-			"elapsed": time.Since(start),
+			"elapsed": dates.Since(start),
 			"count":   count,
 			"org_id":  org.ID,
 		}).Info("completed deleting broadcasts")

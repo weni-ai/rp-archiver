@@ -1,3 +1,70 @@
+v7.4.0
+----------
+ * Include rollups in monthlies failed metric as well as monthlies created from scratch
+
+v7.3.7
+----------
+ * Change query used to update rollup_id on dailies
+ * Remove temporary logging
+
+v7.3.6
+----------
+ * Add temporary additional logging
+ * Replace ExitOnCompletion config option with Once which makes it run once and exit
+
+v7.3.5
+----------
+ * Improve librato analytics and add tests
+
+v7.3.4
+----------
+ * Rework stats reporting
+ * Log version at startup
+
+v7.3.3
+----------
+ * Fix parsing start times after midday
+
+v7.3.2
+----------
+ * Don't log entire run JSON on error, just UUID
+ * Make archival happen at configured start time even on first pass
+
+v7.3.1
+----------
+ * Add librato analytics for time elapsed and number of orgs, msgs and runs
+
+v7.3.0
+----------
+ * Update to go 1.18 and upgrade dependencies
+ * Add support for Msg.visibility=X (deleted by sender)
+ * Add arm64 as a build target
+
+v7.2.0
+----------
+ * Tweak README
+
+v7.1.6
+----------
+ * Stop setting delete_reason on runs before deletion
+
+v7.1.5
+----------
+ * Stop updating msgs_msg.delete_reason which is no longer needed
+
+v7.1.4
+----------
+ * Record flow on msgs
+
+v7.1.3
+----------
+ * Remove deletion of recent runs as these are no longer created
+
+v7.1.2
+----------
+ * Use run status instead of is_active and exit_type
+ * No longer include events in run archives
+
 v7.1.1
 ----------
  * Remove references to flowrun.parent_id which is no longer set by mailroom
