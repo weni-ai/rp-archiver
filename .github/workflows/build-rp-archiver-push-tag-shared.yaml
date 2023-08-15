@@ -5,6 +5,7 @@ on:
     tags:
       - '*.*.*-staging'
       - '*.*.*-develop'
+      - '*.*.*'
 
 jobs:
   docker:
