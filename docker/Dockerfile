@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/go/pkg/mod/ \
 
 FROM alpine:3.18.4
 
+RUN apk add --no-cache tzdata
+
 ENV APP_USER=app \
     APP_GROUP=app \
     USER_ID=11999 \
