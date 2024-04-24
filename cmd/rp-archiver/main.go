@@ -97,6 +97,14 @@ func main() {
 		if err != nil {
 			logrus.WithError(err).Error("error getting active orgs")
 			time.Sleep(time.Minute * 5)
+
+			// after this, reopen db connection to prevent using the same in case of connection problem that we have faced sometimes with broken pipe error
+			db, err = sqlx.Open("postgres", config.DB)
+			if err != nil {
+				logrus.Fatal(err)
+			}
+			db.SetMaxOpenConns(2)
+
 			continue
 		}
 
