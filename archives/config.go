@@ -25,6 +25,9 @@ type Config struct {
 	Delete           bool   `help:"whether to delete messages and runs from the db after archival (default false)"`
 	ExitOnCompletion bool   `help:"whether archiver should exit after completing archiving job (default false)"`
 	StartTime        string `help:"what time archive jobs should run in UTC HH:MM "`
+
+	RollupOrgTimeout          int `help:"rollup timeout for all org archives, limit in hours (default 3)"`
+	BuildRollupArchiveTimeout int `help:"rollup for single archive timeout, limit in hours (default 1)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -52,6 +55,9 @@ func NewConfig() *Config {
 		Delete:           false,
 		ExitOnCompletion: false,
 		StartTime:        "00:01",
+
+		RollupOrgTimeout:          3,
+		BuildRollupArchiveTimeout: 1,
 	}
 
 	return &config
