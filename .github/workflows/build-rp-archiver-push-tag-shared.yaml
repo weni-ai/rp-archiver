@@ -64,6 +64,7 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SHARED }}
 
       - name: Build and push - Archiver Image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -139,7 +140,7 @@ jobs:
           registry: ${{ secrets.ECR }}
           username: ${{ secrets.AWS_ACCESS_KEY_ID_SHARED }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SHARED }}
-          
+
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
