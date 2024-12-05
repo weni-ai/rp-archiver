@@ -17,6 +17,13 @@ jobs:
           - linux/amd64
           - linux/arm64
     steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
+        with:
+          ref: "${{env.GITHUB_SHA}}"
+          token: ${{ secrets.DEVOPS_GITHUB_PERMANENT_TOKEN }}
+
       - name: Set variables
         run: |
             TAG="$( echo "${GITHUB_REF}" | cut -d'/' -f3 )"
@@ -92,6 +99,7 @@ jobs:
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
+
   merge:
     runs-on: ubuntu-latest
     needs:
@@ -117,8 +125,7 @@ jobs:
             VERSION="${TAG}"
             echo "VERSION=${VERSION}" | tee -a "${GITHUB_ENV}"
             echo "COMMIT_SHA=$GITHUB_SHA" | tee -a "${GITHUB_ENV}"
-            echo "IMAGE_TAG=${{ secrets.ECR }}/courier:${TAG}" | tee -a "${GITHUB_ENV}"
-            echo "IMAGE_SOURCE_URL=https://github.com/weni-ai/rp-archiver" | tee -a "${GITHUB_ENV}"
+            echo "IMAGE_TAG=${{ secrets.ECR }}/rp-archiver:${TAG}" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_REPOSITORY=weni-ai/kubernetes-manifests-platform" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_APPLICATION=weni-flows/archiver" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_PATCH_TARGET=deployment.json" | tee -a "${GITHUB_ENV}"
