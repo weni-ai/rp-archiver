@@ -126,7 +126,6 @@ jobs:
             echo "VERSION=${VERSION}" | tee -a "${GITHUB_ENV}"
             echo "COMMIT_SHA=$GITHUB_SHA" | tee -a "${GITHUB_ENV}"
             echo "IMAGE_TAG=${{ secrets.ECR }}/archiver:${TAG}" | tee -a "${GITHUB_ENV}"
-            echo "IMAGE_SOURCE_URL=https://github.com/weni-ai/rp-archiver" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_REPOSITORY=weni-ai/kubernetes-manifests-platform" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_APPLICATION=weni-flows/archiver" | tee -a "${GITHUB_ENV}"
             echo "MANIFESTS_PATCH_TARGET=deployment.json" | tee -a "${GITHUB_ENV}"
