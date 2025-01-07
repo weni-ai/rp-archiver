@@ -11,6 +11,8 @@ RUN GOOS=linux GOARCH=amd64 go build -o /bin/rp-archiver ./cmd/rp-archiver/*.go
 
 FROM alpine:3.20
 
+RUN apk add --no-cache tzdata
+
 WORKDIR /app
 
 COPY --from=builder bin/rp-archiver ./
