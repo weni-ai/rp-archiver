@@ -28,6 +28,8 @@ type Config struct {
 
 	RollupOrgTimeout          int `help:"rollup timeout for all org archives, limit in hours (default 3)"`
 	BuildRollupArchiveTimeout int `help:"rollup for single archive timeout, limit in hours (default 1)"`
+
+	MaxConcurrentArchivation int `help:"max concurrent org archivation (default 2)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -58,6 +60,8 @@ func NewConfig() *Config {
 
 		RollupOrgTimeout:          3,
 		BuildRollupArchiveTimeout: 1,
+
+		MaxConcurrentArchivation: 2,
 	}
 
 	return &config
