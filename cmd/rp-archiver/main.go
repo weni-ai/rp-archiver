@@ -82,6 +82,7 @@ func main() {
 	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
 
 	archiveTask := func(org archives.Org) {
+		defer func() { <-semaphore }()
 		// no single org should take more than 12 hours
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
 
