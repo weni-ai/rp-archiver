@@ -1,3 +1,9 @@
+1.2.4-archiver-7.1.1
+----------
+ * Update go version to 1.23
+ * Update Dockerfile to go 1.23, alpine 3.20 and multistage build
+ * Concurrent archive processing
+
 1.2.3-archiver-7.1.1
 ----------
  * Configuration for rollup timeouts
