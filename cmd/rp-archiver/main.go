@@ -79,6 +79,30 @@ func main() {
 		logrus.WithError(err).Fatal("cannot write to temp directory")
 	}
 
+	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
+
+	archiveTask := func(org archives.Org) {
+		defer func() { <-semaphore }()
+		// no single org should take more than 12 hours
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
+
+		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+
+		if config.ArchiveMessages {
+			_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.MessageType)
+			if err != nil {
+				log.WithError(err).WithField("archive_type", archives.MessageType).Error("error archiving org messages")
+			}
+		}
+		if config.ArchiveRuns {
+			_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.RunType)
+			if err != nil {
+				log.WithError(err).WithField("archive_type", archives.RunType).Error("error archiving org runs")
+			}
+		}
+		cancel()
+	}
+
 	for {
 		start := time.Now().In(time.UTC)
 
@@ -110,24 +134,8 @@ func main() {
 
 		// for each org, do our export
 		for _, org := range orgs {
-			// no single org should take more than 12 hours
-			ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
-			log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
-
-			if config.ArchiveMessages {
-				_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.MessageType)
-				if err != nil {
-					log.WithError(err).WithField("archive_type", archives.MessageType).Error("error archiving org messages")
-				}
-			}
-			if config.ArchiveRuns {
-				_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.RunType)
-				if err != nil {
-					log.WithError(err).WithField("archive_type", archives.RunType).Error("error archiving org runs")
-				}
-			}
-
-			cancel()
+			semaphore <- struct{}{}
+			go archiveTask(org)
 		}
 
 		// ok, we did all our work for our orgs, quit if so configured or sleep until the next day
