@@ -7,7 +7,7 @@ RUN go mod download -x
 
 COPY . ./
 
-RUN GOOS=linux GOARCH=amd64 go build -o /bin/rp-archiver ./cmd/rp-archiver/*.go
+RUN go build -o /bin/rp-archiver ./cmd/rp-archiver/*.go
 
 FROM alpine:3.20
 
