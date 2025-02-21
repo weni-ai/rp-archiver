@@ -79,6 +79,19 @@ func main() {
 		logrus.WithError(err).Fatal("cannot write to temp directory")
 	}
 
+	archiveType := archives.RunType
+	if config.DeleteArchiveType == "message" {
+		archiveType = archives.MessageType
+	}
+
+	if config.DeleteArchived {
+		executeCmdDelete(db, s3Client, config, archiveType)
+	}
+
+	if config.DeleteFromOrg > 0 {
+		executeCmdDeleteFromOrg(db, s3Client, config, archiveType, config.DeleteFromOrg)
+	}
+
 	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
 
 	archiveTask := func(org archives.Org) {
@@ -161,4 +174,60 @@ func main() {
 			logrus.WithField("next_start", nextDay).Info("Rebuilding immediately without sleep")
 		}
 	}
+}
+
+func executeCmdDelete(db *sqlx.DB, s3Client s3iface.S3API, config *archives.Config, archiveType archives.ArchiveType) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	orgs, err := archives.GetActiveOrgs(ctx, db, config)
+	cancel()
+	if err != nil {
+		logrus.WithError(err).Fatal("error fetching active orgs")
+		os.Exit(1)
+	}
+
+	now := time.Now()
+
+	for _, org := range orgs {
+		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
+		deleted, err := archives.DeleteArchivedOrgRecords(ctx, now, config, db, s3Client, org, archiveType)
+		cancel()
+		if err != nil {
+			log.WithError(err).WithField("archive_type", archiveType).Error("error archiving org runs")
+			continue
+		}
+		log.WithField("archive_type", archiveType).Infof("archives deleted %d", len(deleted))
+	}
+	logrus.Info("Exiting...")
+	time.Sleep(3 * time.Second)
+	os.Exit(0)
+}
+
+func executeCmdDeleteFromOrg(db *sqlx.DB, s3Client s3iface.S3API, config *archives.Config, archiveType archives.ArchiveType, orgID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	orgs, err := archives.GetActiveOrgs(ctx, db, config)
+	cancel()
+	if err != nil {
+		logrus.WithError(err).Fatal("error fetching active orgs")
+		os.Exit(1)
+	}
+	var org archives.Org
+	for _, og := range orgs {
+		if orgID == og.ID {
+			org = og
+		}
+	}
+
+	log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Hour*12)
+	deleted, err := archives.DeleteArchivedOrgRecords(ctx, time.Now(), config, db, s3Client, org, archiveType)
+	cancel()
+	if err != nil {
+		log.WithError(err).WithField("archive_type", archiveType).Error("error archiving org runs")
+		os.Exit(1)
+	}
+	log.Infof("archives deleted %d", len(deleted))
+	logrus.Info("Exiting...")
+	time.Sleep(3 * time.Second)
+	os.Exit(0)
 }

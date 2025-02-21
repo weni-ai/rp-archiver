@@ -30,6 +30,10 @@ type Config struct {
 	BuildRollupArchiveTimeout int `help:"rollup for single archive timeout, limit in hours (default 1)"`
 
 	MaxConcurrentArchivation int `help:"max concurrent org archivation (default 2)"`
+
+	DeleteArchived    bool   `help:"to only delete archived files needing to be deleted"`
+	DeleteFromOrg     int    `help:"to only delete archived files needing to be deleted from specified org"`
+	DeleteArchiveType string `help:"archive type to be deleted (between run and msg) (default is run)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -62,6 +66,10 @@ func NewConfig() *Config {
 		BuildRollupArchiveTimeout: 1,
 
 		MaxConcurrentArchivation: 2,
+
+		DeleteArchived:    false,
+		DeleteFromOrg:     0,
+		DeleteArchiveType: "run",
 	}
 
 	return &config
