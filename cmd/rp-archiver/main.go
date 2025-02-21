@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"strings"
 	"time"
@@ -77,6 +78,24 @@ func main() {
 	err = archives.EnsureTempArchiveDirectory(config.TempDir)
 	if err != nil {
 		logrus.WithError(err).Fatal("cannot write to temp directory")
+	}
+
+	cmdDelete := flag.Bool("delete_archived", false, "cmd to only delete archived files needing to be deleted")
+	cmdDeleteFromOrg := flag.Int("delete_from_org", 0, "cmd to only delete archived files needing to be deleted from specified org")
+	flagArchiveType := flag.String("archive_type", "run", "archive type to be deleted (between run and msg) (default is run)")
+	flag.Parse()
+
+	archiveType := archives.RunType
+	if *flagArchiveType == "message" {
+		archiveType = archives.MessageType
+	}
+
+	if *cmdDelete {
+		executeCmdDelete(db, s3Client, config, archiveType)
+	}
+
+	if *cmdDeleteFromOrg > 0 {
+		executeCmdDeleteFromOrg(db, s3Client, config, archiveType, *cmdDeleteFromOrg)
 	}
 
 	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
@@ -161,4 +180,59 @@ func main() {
 			logrus.WithField("next_start", nextDay).Info("Rebuilding immediately without sleep")
 		}
 	}
+}
+
+func executeCmdDelete(db *sqlx.DB, s3Client s3iface.S3API, config *archives.Config, archiveType archives.ArchiveType) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	orgs, err := archives.GetActiveOrgs(ctx, db, config)
+	cancel()
+	if err != nil {
+		logrus.WithError(err).Fatal("error fetching active orgs")
+		os.Exit(1)
+	}
+
+	now := time.Now()
+
+	for _, org := range orgs {
+		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
+		deleted, err := archives.DeleteArchivedOrgRecords(ctx, now, config, db, s3Client, org, archiveType)
+		cancel()
+		if err != nil {
+			log.WithError(err).WithField("archive_type", archiveType).Error("error archiving org runs")
+			continue
+		}
+		log.WithError(err).WithField("archive_type", archiveType).Infof("archives deleted %d", len(deleted))
+	}
+	os.Exit(0)
+}
+
+func executeCmdDeleteFromOrg(db *sqlx.DB, s3Client s3iface.S3API, config *archives.Config, archiveType archives.ArchiveType, orgID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	orgs, err := archives.GetActiveOrgs(ctx, db, config)
+	cancel()
+	if err != nil {
+		logrus.WithError(err).Fatal("error fetching active orgs")
+		os.Exit(1)
+	}
+	var org archives.Org
+	for _, og := range orgs {
+		if orgID == og.ID {
+			org = og
+		}
+	}
+	if err != nil {
+		logrus.WithError(err).Fatalf("error fetching org by ID: %d", orgID)
+		os.Exit(1)
+	}
+
+	log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Hour*12)
+	deleted, err := archives.DeleteArchivedOrgRecords(ctx, time.Now(), config, db, s3Client, org, archiveType)
+	cancel()
+	if err != nil {
+		log.WithError(err).WithField("archive_type", archiveType).Error("error archiving org runs")
+		os.Exit(1)
+	}
+	log.Infof("archives deleted %d", len(deleted))
 }
