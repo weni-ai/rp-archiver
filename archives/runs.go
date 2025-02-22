@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -178,6 +180,134 @@ func DeleteArchivedRuns(ctx context.Context, config *Config, db *sqlx.DB, s3Clie
 
 	// verify we don't see more runs than there are in our archive (fewer is ok)
 	if runCount > archive.RecordCount {
+		return fmt.Errorf("more runs in the database: %d than in archive: %d", runCount, archive.RecordCount)
+	}
+
+	// ok, delete our runs in batches, we do this in transactions as it spans a few different queries
+	for _, idBatch := range chunkIDs(runIDs, deleteTransactionSize) {
+		// no single batch should take more than a few minutes
+		ctx, cancel := context.WithTimeout(ctx, time.Minute*15)
+		defer cancel()
+
+		start := time.Now()
+
+		// start our transaction
+		tx, err := db.BeginTxx(ctx, nil)
+		if err != nil {
+			return err
+		}
+
+		// first update our delete_reason
+		err = executeInQuery(ctx, tx, setRunDeleteReason, idBatch)
+		if err != nil {
+			return errors.Wrap(err, "error updating delete reason")
+		}
+
+		// any recent runs
+		err = executeInQuery(ctx, tx, deleteRecentRuns, idBatch)
+		if err != nil {
+			return errors.Wrap(err, "error deleting recent runs")
+		}
+
+		// finally, delete our runs
+		err = executeInQuery(ctx, tx, deleteRuns, idBatch)
+		if err != nil {
+			return errors.Wrap(err, "error deleting runs")
+		}
+
+		// commit our transaction
+		err = tx.Commit()
+		if err != nil {
+			return errors.Wrap(err, "error committing run delete transaction")
+		}
+
+		log.WithField("elapsed", time.Since(start)).WithField("count", len(idBatch)).Debug("deleted batch of runs")
+
+		cancel()
+	}
+
+	outer, cancel = context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	deletedOn := time.Now()
+
+	// all went well! mark our archive as no longer needing deletion
+	_, err = db.ExecContext(outer, setArchiveDeleted, archive.ID, deletedOn)
+	if err != nil {
+		return errors.Wrap(err, "error setting archive as deleted")
+	}
+	archive.NeedsDeletion = false
+	archive.DeletedOn = &deletedOn
+
+	logrus.WithField("elapsed", time.Since(start)).Info("completed deleting runs")
+
+	return nil
+}
+
+// DeleteArchivedRunsWithCmd takes the passed in archive, verifies the S3 file is still present (and correct), then selects
+// all the runs in the archive date range, and if equal or fewer than the number archived, deletes them 100 at a time
+//
+// Upon completion it updates the needs_deletion flag on the archive
+func DeleteArchivedRunsWithCmd(ctx context.Context, config *Config, db *sqlx.DB, s3Client s3iface.S3API, archive *Archive) error {
+	outer, cancel := context.WithTimeout(ctx, time.Hour*3)
+	defer cancel()
+
+	start := time.Now()
+	log := logrus.WithFields(logrus.Fields{
+		"id":           archive.ID,
+		"org_id":       archive.OrgID,
+		"start_date":   archive.StartDate,
+		"end_date":     archive.endDate(),
+		"archive_type": archive.ArchiveType,
+		"total_count":  archive.RecordCount,
+	})
+	log.Info("deleting runs")
+
+	// first things first, make sure our file is present on S3
+	md5, err := GetS3FileETAG(outer, s3Client, archive.URL)
+	if err != nil {
+		return err
+	}
+
+	// if our etag and archive md5 don't match, that's an error, return
+	if md5 != archive.Hash {
+		return fmt.Errorf("archive md5: %s and s3 etag: %s do not match", archive.Hash, md5)
+	}
+
+	// ok, archive file looks good, let's build up our list of run ids, this may be big but we are int64s so shouldn't be too big
+	rows, err := db.QueryxContext(outer, selectOrgRunsInRange, archive.OrgID, archive.StartDate, archive.endDate())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var runID int64
+	var isActive bool
+	runCount := 0
+	runIDs := make([]int64, 0, archive.RecordCount)
+	for rows.Next() {
+		err = rows.Scan(&runID, &isActive)
+		if err != nil {
+			return err
+		}
+
+		// if this run is still active, something has gone wrong, throw an error
+		if isActive {
+			return fmt.Errorf("run %d in archive is still active", runID)
+		}
+
+		// increment our count
+		runCount++
+		runIDs = append(runIDs, runID)
+	}
+	rows.Close()
+
+	log.WithField("run_count", len(runIDs)).Debug("found runs")
+
+	bpd, _ := strconv.ParseBool(os.Getenv("ARCHIVER_BPD"))
+
+	// verify we don't see more runs than there are in our archive (fewer is ok)
+	if !bpd && runCount > archive.RecordCount {
 		return fmt.Errorf("more runs in the database: %d than in archive: %d", runCount, archive.RecordCount)
 	}
 
