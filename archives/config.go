@@ -34,6 +34,13 @@ type Config struct {
 	DeleteArchived    bool   `help:"to only delete archived files needing to be deleted"`
 	DeleteFromOrg     int    `help:"to only delete archived files needing to be deleted from specified org"`
 	DeleteArchiveType string `help:"archive type to be deleted (between run and msg) (default is run)"`
+
+	ArchiveSingleMonth       bool   `help:"wheter archiver should archive only a single month"`
+	ArchiveRollupSingleMonth bool   `help:"wheter archiver should archive only a single month from files"`
+	DeleteFromOrgSingleMonth bool   `help:"to only delete archived from selected date to be deleted from specified orgId "`
+	OrgID                    string `help:"org id"`
+	Year                     string `help:"year that archive should be created ex: 2022"`
+	Month                    string `help:"month that archive should be created ex: 01"`
 }
 
 // NewConfig returns a new default configuration object
@@ -70,6 +77,9 @@ func NewConfig() *Config {
 		DeleteArchived:    false,
 		DeleteFromOrg:     0,
 		DeleteArchiveType: "run",
+
+		ArchiveSingleMonth:       false,
+		ArchiveRollupSingleMonth: false,
 	}
 
 	return &config
