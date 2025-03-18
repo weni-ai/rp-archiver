@@ -3,6 +3,7 @@ package archives
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -530,4 +531,68 @@ func TestArchiveOrgRuns(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 1, count)
 	}
+}
+
+func TestRunExitTypeHandling(t *testing.T) {
+	db := setup(t)
+	ctx := context.Background()
+
+	// Create a test run with a non-standard exit type
+	_, err := db.Exec(`
+		INSERT INTO flows_flowrun (id, org_id, flow_id, contact_id, exit_type, exited_on, modified_on, created_on, uuid, responded, results, path, events, status)
+		VALUES (1000, 2, 1, 1, 'X', NULL, NOW(), NOW(), '550e8400-e29b-41d4-a716-446655440000', false, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, 'C')
+	`)
+	assert.NoError(t, err)
+
+	// Create a test run with a standard exit type
+	_, err = db.Exec(`
+		INSERT INTO flows_flowrun (id, org_id, flow_id, contact_id, exit_type, exited_on, modified_on, created_on, uuid, responded, results, path, events, status)
+		VALUES (1001, 2, 1, 1, 'C', NOW(), NOW(), NOW(), '550e8400-e29b-41d4-a716-446655440001', true, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, 'C')
+	`)
+	assert.NoError(t, err)
+
+	// Get the runs through our lookup query
+	rows, err := db.QueryxContext(ctx, lookupFlowRuns, false, 2, time.Now().Add(-24*time.Hour), time.Now().Add(24*time.Hour))
+	assert.NoError(t, err)
+	defer rows.Close()
+
+	var record string
+	var exitedOn *time.Time
+	records := make([]map[string]interface{}, 0)
+
+	for rows.Next() {
+		err = rows.Scan(&exitedOn, &record)
+		assert.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(record), &result)
+		assert.NoError(t, err)
+		records = append(records, result)
+	}
+
+	// Verify we got both records
+	assert.Equal(t, 2, len(records))
+
+	// Find our test runs
+	var nonStandardRun, standardRun map[string]interface{}
+	for _, record := range records {
+		if record["exit_type"] == "expired" {
+			nonStandardRun = record
+		} else if record["exit_type"] == "completed" {
+			standardRun = record
+		}
+	}
+
+	// Verify non-standard run was handled correctly
+	assert.NotNil(t, nonStandardRun)
+	assert.Equal(t, "expired", nonStandardRun["exit_type"])
+	assert.NotNil(t, nonStandardRun["exited_on"])
+	exitedOnTime, err := time.Parse(time.RFC3339, nonStandardRun["exited_on"].(string))
+	assert.NoError(t, err)
+	assert.True(t, time.Since(exitedOnTime) < 5*time.Second) // Should be very recent
+
+	// Verify standard run was handled correctly
+	assert.NotNil(t, standardRun)
+	assert.Equal(t, "completed", standardRun["exit_type"])
+	assert.NotNil(t, standardRun["exited_on"])
 }
