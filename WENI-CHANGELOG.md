@@ -1,3 +1,8 @@
+1.3.0
+----------
+ * Configuration to archive inactive orgs
+ * Force expire and then archive runs that is out from retention period
+
 1.2.4-archiver-7.1.1
 ----------
  * Update go version to 1.23
