@@ -96,6 +96,12 @@ FROM orgs_org o
 WHERE o.is_active = TRUE order by o.id
 `
 
+const lookupInactiveOrgs = `
+SELECT o.id, o.name, o.created_on, o.is_anon 
+FROM orgs_org o 
+WHERE o.is_active = FALSE order by o.id
+`
+
 // GetActiveOrgs returns the active organizations sorted by id
 func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -113,6 +119,30 @@ func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error
 		err = rows.StructScan(&org)
 		if err != nil {
 			return nil, errors.Wrapf(err, "error scanning active org")
+		}
+		orgs = append(orgs, org)
+	}
+
+	return orgs, nil
+}
+
+// GetInactiveOrgs returns the inactive organizations sorted by id
+func GetInactiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	rows, err := db.QueryxContext(ctx, lookupInactiveOrgs)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error fetching inactive orgs")
+	}
+	defer rows.Close()
+
+	orgs := make([]Org, 0, 10)
+	for rows.Next() {
+		org := Org{RetentionPeriod: conf.RetentionPeriod}
+		err = rows.StructScan(&org)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error scanning inactive org")
 		}
 		orgs = append(orgs, org)
 	}

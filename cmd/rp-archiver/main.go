@@ -113,13 +113,18 @@ func main() {
 			logrus.WithError(err).Fatal("invalid start time supplied, format: HH:mm")
 		}
 
-		// get our active orgs
+		var orgs []archives.Org
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		orgs, err := archives.GetActiveOrgs(ctx, db, config)
 		cancel()
-
+		if config.ArchiveInactive {
+			// get our inactive orgs
+			orgs, err = archives.GetInactiveOrgs(ctx, db, config)
+		} else {
+			// get our active orgs
+			orgs, err = archives.GetActiveOrgs(ctx, db, config)
+		}
 		if err != nil {
-			logrus.WithError(err).Error("error getting active orgs")
+			logrus.WithError(err).Error("error getting orgs")
 			time.Sleep(time.Minute * 5)
 
 			// after this, reopen db connection to prevent using the same in case of connection problem that we have faced sometimes with broken pipe error
