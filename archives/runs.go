@@ -37,7 +37,7 @@ FROM (
 	 END AS events,
      fr.created_on,
      fr.modified_on,
-	 fr.exited_on,
+	 COALESCE(fr.exited_on, CASE WHEN exit_type NOT IN ('C', 'I', 'E') THEN now() ELSE fr.exited_on END) as exited_on,
      CASE
         WHEN exit_type = 'C'
           THEN 'completed'
@@ -46,7 +46,7 @@ FROM (
         WHEN exit_type = 'E'
           THEN 'expired'
         ELSE
-          null
+          'expired'
 	 END as exit_type,
  	 a.username as submitted_by
 
@@ -74,12 +74,6 @@ func writeRunRecords(ctx context.Context, db *sqlx.DB, archive *Archive, writer 
 	var exitedOn *time.Time
 	for rows.Next() {
 		err = rows.Scan(&exitedOn, &record)
-
-		// shouldn't be archiving an active run, that's an error
-		if exitedOn == nil {
-			return 0, fmt.Errorf("run still active, cannot archive: %s", record)
-		}
-
 		if err != nil {
 			return 0, errors.Wrapf(err, "error scanning run record for org: %d", archive.Org.ID)
 		}
