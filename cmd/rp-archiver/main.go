@@ -115,7 +115,6 @@ func main() {
 
 		var orgs []archives.Org
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		cancel()
 		if config.ArchiveInactive {
 			// get our inactive orgs
 			orgs, err = archives.GetInactiveOrgs(ctx, db, config)
@@ -123,6 +122,7 @@ func main() {
 			// get our active orgs
 			orgs, err = archives.GetActiveOrgs(ctx, db, config)
 		}
+		cancel()
 		if err != nil {
 			logrus.WithError(err).Error("error getting orgs")
 			time.Sleep(time.Minute * 5)
