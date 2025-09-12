@@ -1209,6 +1209,28 @@ func ArchiveOrgSingleMonth(ctx context.Context, db *sqlx.DB, config *Config, s3C
 	return archive, nil
 }
 
+func ArchiveOrgSingleDay(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, org Org, year string, month string, day string, archiveType ArchiveType) (*Archive, error) {
+	inputDate := fmt.Sprintf("%s-%s-%s", year, month, day)
+	startDate, err := time.Parse("2006-01-02", inputDate)
+	if err != nil {
+		return nil, err
+	}
+	archive := &Archive{
+		Org:         org,
+		OrgID:       org.ID,
+		StartDate:   startDate,
+		ArchiveType: archiveType,
+		Period:      DayPeriod,
+	}
+
+	err = reCreateArchives(ctx, db, config, s3Client, org, []*Archive{archive})
+	if err != nil {
+		return nil, err
+	}
+
+	return archive, nil
+}
+
 func RollupArchives(ctx context.Context, config *Config, db *sqlx.DB, s3Client s3iface.S3API, org Org, archiveType ArchiveType, startDate time.Time, endDate time.Time) ([]*Archive, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Hour*12)
 	defer cancel()

@@ -84,6 +84,10 @@ func main() {
 		executeCmdArchiveSingleMonth(db, s3Client, config)
 	}
 
+	if config.ArchiveSingleDay {
+		executeCmdArchiveSingleDay(db, s3Client, config)
+	}
+
 	if config.ArchiveRollupSingleMonth {
 		executeCmdArchiveAndRollupSingleMonth(db, s3Client, config)
 	}
@@ -289,7 +293,7 @@ func executeCmdArchiveSingleMonth(db *sqlx.DB, s3Client s3iface.S3API, config *a
 	}
 
 	ctx, cancel = context.WithTimeout(context.Background(), time.Hour*6)
-
+	defer cancel()
 	log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
 
 	if config.ArchiveMessages {
@@ -306,7 +310,40 @@ func executeCmdArchiveSingleMonth(db *sqlx.DB, s3Client s3iface.S3API, config *a
 		}
 	}
 
+	os.Exit(0)
+}
+
+func executeCmdArchiveSingleDay(db *sqlx.DB, s3Client s3iface.S3API, config *archives.Config) {
+	validateOrgYearMonthDayConf(config)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	org, err := archives.GetOrg(ctx, db, config, config.OrgID)
 	cancel()
+	if err != nil {
+		logrus.WithError(err).Fatal("error getting org for id ", config.OrgID)
+	}
+	if org == nil {
+		logrus.Fatal("couldn't find org for id ", config.OrgID)
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), time.Hour*12)
+	defer cancel()
+
+	log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+
+	if config.ArchiveMessages {
+		_, err = archives.ArchiveOrgSingleDay(ctx, db, config, s3Client, *org, config.Year, config.Month, config.Day, archives.MessageType)
+		if err != nil {
+			log.WithError(err).WithField("archive_type", archives.MessageType).Error("error archiving org messages")
+		}
+	}
+
+	if config.ArchiveRuns {
+		_, err = archives.ArchiveOrgSingleDay(ctx, db, config, s3Client, *org, config.Year, config.Month, config.Day, archives.RunType)
+		if err != nil {
+			log.WithError(err).WithField("archive_type", archives.RunType).Error("error archiving org runs")
+		}
+	}
+
 	os.Exit(0)
 }
 
@@ -353,5 +390,20 @@ func validateOrgYearMonthConf(config *archives.Config) {
 	}
 	if config.Month == "" {
 		logrus.Fatal("on single month archive mode, argument Month should be provided ex: month=01")
+	}
+}
+
+func validateOrgYearMonthDayConf(config *archives.Config) {
+	if config.OrgID == "" {
+		logrus.Fatal("on single day archive mode, argument OrgID should be provided")
+	}
+	if config.Year == "" {
+		logrus.Fatal("on single day archive mode, argument Year should be provided ex: year=2022")
+	}
+	if config.Month == "" {
+		logrus.Fatal("on single day archive mode, argument Month should be provided ex: month=01")
+	}
+	if config.Day == "" {
+		logrus.Fatal("on single day archive mode, argument Day should be provided ex: day=01")
 	}
 }
