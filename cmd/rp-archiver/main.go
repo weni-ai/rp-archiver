@@ -115,7 +115,17 @@ func main() {
 
 		var orgs []archives.Org
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		if config.ArchiveInactive {
+
+		if config.ArchiveOrgID > 0 {
+			// archive specific org by ID
+			org, err := archives.GetOrgByID(ctx, db, config, config.ArchiveOrgID)
+			if err != nil {
+				logrus.WithError(err).WithField("org_id", config.ArchiveOrgID).Error("error getting specific org")
+			} else {
+				orgs = []archives.Org{org}
+				err = nil // reset error since we successfully got the org
+			}
+		} else if config.ArchiveInactive {
 			// get our inactive orgs
 			orgs, err = archives.GetInactiveOrgs(ctx, db, config)
 		} else {
@@ -135,6 +145,16 @@ func main() {
 			db.SetMaxOpenConns(2)
 
 			continue
+		}
+
+		// log what we're archiving
+		if config.ArchiveOrgID > 0 {
+			logrus.WithFields(logrus.Fields{
+				"org_count": len(orgs),
+				"org_id":    config.ArchiveOrgID,
+			}).Info("starting archival for specific org")
+		} else {
+			logrus.WithField("org_count", len(orgs)).Info("starting archival for orgs")
 		}
 
 		// for each org, do our export

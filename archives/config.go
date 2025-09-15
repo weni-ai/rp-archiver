@@ -32,6 +32,7 @@ type Config struct {
 	MaxConcurrentArchivation int `help:"max concurrent org archivation (default 2)"`
 
 	ArchiveInactive bool `help:"archive inactive orgs (default false)"`
+	ArchiveOrgID    int  `help:"archive specific org by ID (0 means all orgs, default 0)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -66,6 +67,7 @@ func NewConfig() *Config {
 		MaxConcurrentArchivation: 2,
 
 		ArchiveInactive: false,
+		ArchiveOrgID:    0,
 	}
 
 	return &config

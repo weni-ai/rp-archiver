@@ -102,6 +102,12 @@ FROM orgs_org o
 WHERE o.is_active = FALSE order by o.id
 `
 
+const lookupOrgByID = `
+SELECT o.id, o.name, o.created_on, o.is_anon 
+FROM orgs_org o 
+WHERE o.id = $1
+`
+
 // GetActiveOrgs returns the active organizations sorted by id
 func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -148,6 +154,22 @@ func GetInactiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, err
 	}
 
 	return orgs, nil
+}
+
+// GetOrgByID returns a specific organization by ID
+func GetOrgByID(ctx context.Context, db *sqlx.DB, conf *Config, orgID int) (Org, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	var org Org
+	org.RetentionPeriod = conf.RetentionPeriod
+
+	err := db.GetContext(ctx, &org, lookupOrgByID, orgID)
+	if err != nil {
+		return org, errors.Wrapf(err, "error fetching org by ID: %d", orgID)
+	}
+
+	return org, nil
 }
 
 const lookupOrgArchives = `
