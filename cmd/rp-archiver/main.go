@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -81,7 +82,8 @@ func main() {
 
 	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
 
-	archiveTask := func(org archives.Org) {
+	archiveTask := func(org archives.Org, wg *sync.WaitGroup) {
+		defer wg.Done()
 		defer func() { <-semaphore }()
 		// no single org should take more than 12 hours
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
@@ -115,7 +117,17 @@ func main() {
 
 		var orgs []archives.Org
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		if config.ArchiveInactive {
+
+		if config.ArchiveOrgID > 0 {
+			// archive specific org by ID
+			org, err := archives.GetOrgByID(ctx, db, config, config.ArchiveOrgID)
+			if err != nil {
+				logrus.WithError(err).WithField("org_id", config.ArchiveOrgID).Error("error getting specific org")
+			} else {
+				orgs = []archives.Org{org}
+				err = nil // reset error since we successfully got the org
+			}
+		} else if config.ArchiveInactive {
 			// get our inactive orgs
 			orgs, err = archives.GetInactiveOrgs(ctx, db, config)
 		} else {
@@ -137,11 +149,28 @@ func main() {
 			continue
 		}
 
-		// for each org, do our export
-		for _, org := range orgs {
-			semaphore <- struct{}{}
-			go archiveTask(org)
+		// log what we're archiving
+		if config.ArchiveOrgID > 0 {
+			logrus.WithFields(logrus.Fields{
+				"org_count": len(orgs),
+				"org_id":    config.ArchiveOrgID,
+			}).Info("starting archival for specific org")
+		} else {
+			logrus.WithField("org_count", len(orgs)).Info("starting archival for orgs")
 		}
+
+		// for each org, do our export
+		var wg sync.WaitGroup
+		for _, org := range orgs {
+			wg.Add(1)
+			semaphore <- struct{}{}
+			go archiveTask(org, &wg)
+		}
+
+		// wait for all archiving tasks to complete
+		logrus.WithField("org_count", len(orgs)).Info("waiting for archival tasks to complete")
+		wg.Wait()
+		logrus.Info("all archival tasks completed")
 
 		// ok, we did all our work for our orgs, quit if so configured or sleep until the next day
 		if config.ExitOnCompletion {
