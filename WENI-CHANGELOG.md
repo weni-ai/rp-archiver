@@ -1,3 +1,8 @@
+1.3.1
+----------
+ * Incrementing logs on deleting broadcasts with periodic infos
+ * Allow delete active already archived runs
+
 1.3.0
 ----------
  * Configuration to archive inactive orgs
