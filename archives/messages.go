@@ -284,13 +284,22 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 	defer rows.Close()
 
 	count := 0
+	skipped := 0
+	processed := 0
 	for rows.Next() {
-		if count == 0 {
+		if count == 0 && skipped == 0 {
 			logrus.WithField("org_id", org.ID).Info("deleting broadcasts")
 		}
 
 		// been deleting this org more than an hour? thats enough for today, exit out
 		if time.Since(start) > time.Hour {
+			logrus.WithFields(logrus.Fields{
+				"org_id":    org.ID,
+				"deleted":   count,
+				"skipped":   skipped,
+				"processed": processed,
+				"elapsed":   time.Since(start),
+			}).Info("stopping broadcast deletion after 1 hour")
 			break
 		}
 
@@ -299,6 +308,8 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 		if err != nil {
 			return errors.Wrap(err, "unable to get broadcast id")
 		}
+
+		processed++
 
 		// make sure we have no active messages
 		var msgCount int64
@@ -309,6 +320,7 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 
 		if msgCount != 0 {
 			logrus.WithField("broadcast_id", broadcastID).WithField("org_id", org.ID).WithField("msg_count", msgCount).Warn("unable to delete broadcast, has messages still")
+			skipped++
 			continue
 		}
 
@@ -359,13 +371,26 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 		}
 
 		count++
+
+		// log progress every 100 broadcasts
+		if count%100 == 0 {
+			logrus.WithFields(logrus.Fields{
+				"org_id":    org.ID,
+				"deleted":   count,
+				"skipped":   skipped,
+				"processed": processed,
+				"elapsed":   time.Since(start),
+			}).Info("broadcast deletion progress")
+		}
 	}
 
-	if count > 0 {
+	if count > 0 || skipped > 0 {
 		logrus.WithFields(logrus.Fields{
-			"elapsed": time.Since(start),
-			"count":   count,
-			"org_id":  org.ID,
+			"elapsed":   time.Since(start),
+			"deleted":   count,
+			"skipped":   skipped,
+			"processed": processed,
+			"org_id":    org.ID,
 		}).Info("completed deleting broadcasts")
 	}
 
