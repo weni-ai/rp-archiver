@@ -239,7 +239,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 		cancel()
 	}
 
-	outer, cancel = context.WithTimeout(ctx, time.Minute)
+	outer, cancel = context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	deletedOn := time.Now()
