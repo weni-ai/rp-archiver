@@ -927,8 +927,6 @@ func executeInQuery(ctx context.Context, tx *sqlx.Tx, query string, ids []int64)
 	return err
 }
 
-var deleteTransactionSize = 100
-
 // DeleteArchivedOrgRecords deletes all the records for the passeg in org based on archives already created
 func DeleteArchivedOrgRecords(ctx context.Context, now time.Time, config *Config, db *sqlx.DB, s3Client s3iface.S3API, org Org, archiveType ArchiveType) ([]*Archive, error) {
 	// get all the archives that haven't yet been deleted

@@ -34,6 +34,8 @@ type Config struct {
 	ArchiveInactive bool `help:"archive inactive orgs (default false)"`
 
 	CommonTimeout int `help:"common timeout for many operations, limit in minutes (default 5)"`
+
+	DeleteBatchSize int `help:"the number of records to delete in each batch transaction (default 100)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -70,6 +72,8 @@ func NewConfig() *Config {
 		ArchiveInactive: false,
 
 		CommonTimeout: 5,
+
+		DeleteBatchSize: 100,
 	}
 
 	return &config

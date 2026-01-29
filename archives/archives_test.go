@@ -302,9 +302,9 @@ func getCountInRange(db *sqlx.DB, query string, orgID int, start time.Time, end 
 func TestArchiveOrgMessages(t *testing.T) {
 	db := setup(t)
 	ctx := context.Background()
-	deleteTransactionSize = 1
 
 	config := NewConfig()
+	config.DeleteBatchSize = 1
 	orgs, err := GetActiveOrgs(ctx, db, config)
 	assert.NoError(t, err)
 	now := time.Date(2018, 1, 8, 12, 30, 0, 0, time.UTC)
