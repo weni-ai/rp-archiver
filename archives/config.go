@@ -32,6 +32,8 @@ type Config struct {
 	MaxConcurrentArchivation int `help:"max concurrent org archivation (default 2)"`
 
 	ArchiveInactive bool `help:"archive inactive orgs (default false)"`
+
+	CommonTimeout int `help:"common timeout for many operations, limit in minutes (default 5)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -66,6 +68,8 @@ func NewConfig() *Config {
 		MaxConcurrentArchivation: 2,
 
 		ArchiveInactive: false,
+
+		CommonTimeout: 5,
 	}
 
 	return &config

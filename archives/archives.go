@@ -157,8 +157,8 @@ ORDER BY start_date asc, period desc
 `
 
 // GetCurrentArchives returns all the current archives for the passed in org and record type
-func GetCurrentArchives(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType) ([]*Archive, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetCurrentArchives(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, config *Config) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	archives := make([]*Archive, 0, 1)
@@ -177,8 +177,8 @@ ORDER BY start_date asc, period desc
 `
 
 // GetArchivesNeedingDeletion returns all the archives which need to be deleted
-func GetArchivesNeedingDeletion(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType) ([]*Archive, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetArchivesNeedingDeletion(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, config *Config) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	archives := make([]*Archive, 0, 1)
@@ -197,8 +197,8 @@ WHERE org_id = $1 AND archive_type = $2
 `
 
 // GetCurrentArchiveCount returns the archive count for the passed in org and record type
-func GetCurrentArchiveCount(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType) (int, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetCurrentArchiveCount(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, config *Config) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	var archiveCount int
@@ -220,8 +220,8 @@ ORDER BY start_date asc
 `
 
 // GetDailyArchivesForDateRange returns all the current archives for the passed in org and record type and date range
-func GetDailyArchivesForDateRange(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, startDate time.Time, endDate time.Time) ([]*Archive, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetDailyArchivesForDateRange(ctx context.Context, db *sqlx.DB, org Org, archiveType ArchiveType, startDate time.Time, endDate time.Time, config *Config) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	existingArchives := make([]*Archive, 0, 1)
@@ -235,8 +235,8 @@ func GetDailyArchivesForDateRange(ctx context.Context, db *sqlx.DB, org Org, arc
 }
 
 // GetMissingDailyArchives calculates what archives need to be generated for the passed in org this is calculated per day
-func GetMissingDailyArchives(ctx context.Context, db *sqlx.DB, now time.Time, org Org, archiveType ArchiveType) ([]*Archive, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetMissingDailyArchives(ctx context.Context, db *sqlx.DB, now time.Time, org Org, archiveType ArchiveType, config *Config) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	// our first archive would be active days from today
@@ -244,7 +244,7 @@ func GetMissingDailyArchives(ctx context.Context, db *sqlx.DB, now time.Time, or
 	orgUTC := org.CreatedOn.In(time.UTC)
 	startDate := time.Date(orgUTC.Year(), orgUTC.Month(), orgUTC.Day(), 0, 0, 0, 0, time.UTC)
 
-	return GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType)
+	return GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType, config)
 }
 
 const lookupMissingDailyArchive = `
@@ -262,8 +262,8 @@ WHERE curr_archives.start_date IS NULL
 `
 
 // GetMissingDailyArchivesForDateRange returns all them missing daily archives between the two passed in date ranges
-func GetMissingDailyArchivesForDateRange(ctx context.Context, db *sqlx.DB, startDate time.Time, endDate time.Time, org Org, archiveType ArchiveType) ([]*Archive, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func GetMissingDailyArchivesForDateRange(ctx context.Context, db *sqlx.DB, startDate time.Time, endDate time.Time, org Org, archiveType ArchiveType, config *Config) ([]*Archive, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	missing := make([]*Archive, 0, 1)
@@ -363,7 +363,7 @@ func BuildRollupArchive(ctx context.Context, db *sqlx.DB, conf *Config, s3Client
 	}
 
 	// grab all the daily archives we need
-	missingDailies, err := GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType)
+	missingDailies, err := GetMissingDailyArchivesForDateRange(ctx, db, startDate, endDate, org, archiveType, conf)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func BuildRollupArchive(ctx context.Context, db *sqlx.DB, conf *Config, s3Client
 
 	recordCount := 0
 
-	dailies, err := GetDailyArchivesForDateRange(ctx, db, org, archiveType, startDate, endDate)
+	dailies, err := GetDailyArchivesForDateRange(ctx, db, org, archiveType, startDate, endDate, conf)
 	if err != nil {
 		return err
 	}
@@ -635,8 +635,8 @@ WHERE ARRAY[id] <@ $2
 `
 
 // WriteArchiveToDB write an archive to the Database
-func WriteArchiveToDB(ctx context.Context, db *sqlx.DB, archive *Archive) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func WriteArchiveToDB(ctx context.Context, db *sqlx.DB, archive *Archive, config *Config) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(config.CommonTimeout))
 	defer cancel()
 
 	archive.OrgID = archive.Org.ID
@@ -725,7 +725,7 @@ func CreateOrgArchives(ctx context.Context, now time.Time, config *Config, db *s
 	records := 0
 	start := time.Now()
 
-	archiveCount, err := GetCurrentArchiveCount(ctx, db, org, archiveType)
+	archiveCount, err := GetCurrentArchiveCount(ctx, db, org, archiveType, config)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error getting current archive count")
 	}
@@ -747,7 +747,7 @@ func CreateOrgArchives(ctx context.Context, now time.Time, config *Config, db *s
 	}
 
 	// then add in daily archives taking into account the monthly that have been built
-	daily, err := GetMissingDailyArchives(ctx, db, now, org, archiveType)
+	daily, err := GetMissingDailyArchives(ctx, db, now, org, archiveType, config)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error getting missing daily archives")
 	}
@@ -800,7 +800,7 @@ func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3
 		}
 	}
 
-	err = WriteArchiveToDB(ctx, db, archive)
+	err = WriteArchiveToDB(ctx, db, archive, config)
 	if err != nil {
 		return errors.Wrap(err, "error writing record to db")
 	}
@@ -881,7 +881,7 @@ func RollupOrgArchives(ctx context.Context, now time.Time, config *Config, db *s
 			}
 		}
 
-		err = WriteArchiveToDB(ctx, db, archive)
+		err = WriteArchiveToDB(ctx, db, archive, config)
 		if err != nil {
 			log.WithError(err).Error("error writing record to db")
 			continue
@@ -932,7 +932,7 @@ var deleteTransactionSize = 100
 // DeleteArchivedOrgRecords deletes all the records for the passeg in org based on archives already created
 func DeleteArchivedOrgRecords(ctx context.Context, now time.Time, config *Config, db *sqlx.DB, s3Client s3iface.S3API, org Org, archiveType ArchiveType) ([]*Archive, error) {
 	// get all the archives that haven't yet been deleted
-	archives, err := GetArchivesNeedingDeletion(ctx, db, org, archiveType)
+	archives, err := GetArchivesNeedingDeletion(ctx, db, org, archiveType, config)
 	if err != nil {
 		return nil, fmt.Errorf("error finding archives needing deletion '%s'", archiveType)
 	}
