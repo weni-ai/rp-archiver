@@ -36,6 +36,8 @@ type Config struct {
 	CommonTimeout int `help:"common timeout for many operations, limit in minutes (default 5)"`
 
 	DeleteBatchSize int `help:"the number of records to delete in each batch transaction (default 100)"`
+
+	MaxOpenConnections int `help:"the maximum number of open connections to the database (default 2)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -74,6 +76,8 @@ func NewConfig() *Config {
 		CommonTimeout: 5,
 
 		DeleteBatchSize: 100,
+
+		MaxOpenConnections: 2,
 	}
 
 	return &config
