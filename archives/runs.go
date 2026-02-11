@@ -171,7 +171,7 @@ func DeleteArchivedRuns(ctx context.Context, config *Config, db *sqlx.DB, s3Clie
 	}
 
 	// ok, delete our runs in batches, we do this in transactions as it spans a few different queries
-	for _, idBatch := range chunkIDs(runIDs, deleteTransactionSize) {
+	for _, idBatch := range chunkIDs(runIDs, config.DeleteBatchSize) {
 		// no single batch should take more than a few minutes
 		ctx, cancel := context.WithTimeout(ctx, time.Minute*15)
 		defer cancel()

@@ -191,7 +191,7 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 	}
 
 	// ok, delete our messages in batches, we do this in transactions as it spans a few different queries
-	for _, idBatch := range chunkIDs(msgIDs, deleteTransactionSize) {
+	for _, idBatch := range chunkIDs(msgIDs, config.DeleteBatchSize) {
 		// no single batch should take more than a few minutes
 		ctx, cancel := context.WithTimeout(ctx, time.Minute*15)
 		defer cancel()
