@@ -1,3 +1,8 @@
+1.4.0
+----------
+ * Config for broadcast delete batch size
+ * Config for db max connections
+
 1.3.1
 ----------
  * Incrementing logs on deleting broadcasts with periodic infos
