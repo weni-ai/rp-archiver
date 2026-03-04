@@ -93,13 +93,12 @@ func (a *Archive) endDate() time.Time {
 const lookupActiveOrgs = `
 SELECT o.id, o.name, o.created_on, o.is_anon 
 FROM orgs_org o 
-LEFT JOIN LATERAL (
-    SELECT a.record_count
-    FROM archives_archive a
-    WHERE a.org_id = o.id AND a.period = 'M'
-    ORDER BY a.start_date DESC
-    LIMIT 1
-) latest_archive ON true
+LEFT JOIN (
+    SELECT DISTINCT ON (org_id) org_id, record_count
+    FROM archives_archive
+    WHERE period = 'M'
+    ORDER BY org_id, start_date DESC
+) latest_archive ON latest_archive.org_id = o.id
 WHERE o.is_active = TRUE 
 ORDER BY COALESCE(latest_archive.record_count, 0) DESC, o.id
 `
