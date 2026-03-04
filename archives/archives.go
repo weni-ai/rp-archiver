@@ -97,6 +97,7 @@ LEFT JOIN (
     SELECT DISTINCT ON (org_id) org_id, record_count
     FROM archives_archive
     WHERE period = 'M'
+	AND archive_type = 'message'
     ORDER BY org_id, start_date DESC
 ) latest_archive ON latest_archive.org_id = o.id
 WHERE o.is_active = TRUE 
