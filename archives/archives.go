@@ -93,7 +93,15 @@ func (a *Archive) endDate() time.Time {
 const lookupActiveOrgs = `
 SELECT o.id, o.name, o.created_on, o.is_anon 
 FROM orgs_org o 
-WHERE o.is_active = TRUE order by o.id
+LEFT JOIN (
+    SELECT DISTINCT ON (org_id) org_id, record_count
+    FROM archives_archive
+    WHERE period = 'M'
+	AND archive_type = 'message'
+    ORDER BY org_id, start_date DESC
+) latest_archive ON latest_archive.org_id = o.id
+WHERE o.is_active = TRUE 
+ORDER BY COALESCE(latest_archive.record_count, 0) DESC, o.id
 `
 
 const lookupInactiveOrgs = `
@@ -102,7 +110,7 @@ FROM orgs_org o
 WHERE o.is_active = FALSE order by o.id
 `
 
-// GetActiveOrgs returns the active organizations sorted by id
+// GetActiveOrgs returns the active organizations sorted by most recent monthly archive record count (descending)
 func GetActiveOrgs(ctx context.Context, db *sqlx.DB, conf *Config) ([]Org, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
