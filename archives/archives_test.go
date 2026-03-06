@@ -20,7 +20,12 @@ func setup(t *testing.T) *sqlx.DB {
 	testDB, err := ioutil.ReadFile("../testdb.sql")
 	assert.NoError(t, err)
 
-	db, err := sqlx.Open("postgres", "postgres://temba:temba@localhost:5432/archiver_test?sslmode=disable&TimeZone=UTC")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://temba:temba@localhost:5432/archiver_test?sslmode=disable&TimeZone=UTC"
+	}
+
+	db, err := sqlx.Open("postgres", dbURL)
 	assert.NoError(t, err)
 
 	_, err = db.Exec(string(testDB))
