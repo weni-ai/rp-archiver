@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/nyaruka/ezconf"
 	"github.com/nyaruka/rp-archiver/archives"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -79,6 +82,13 @@ func main() {
 		logrus.WithError(err).Fatal("cannot write to temp directory")
 	}
 
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			logrus.WithError(err).Fatal("error starting metrics server")
+		}
+	}()
+
 	semaphore := make(chan struct{}, config.MaxConcurrentArchivation)
 
 	archiveTask := func(org archives.Org) {
@@ -87,24 +97,48 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
 
 		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
+		orgIDStr := strconv.Itoa(org.ID)
+
+		hasError := false
+		var msgCreated, runCreated []*archives.Archive
 
 		if config.ArchiveMessages {
-			_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.MessageType)
+			msgCreated, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.MessageType)
 			if err != nil {
+				hasError = true
 				log.WithError(err).WithField("archive_type", archives.MessageType).Error("error archiving org messages")
 			}
 		}
 		if config.ArchiveRuns {
-			_, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.RunType)
+			runCreated, _, err = archives.ArchiveOrg(ctx, time.Now(), config, db, s3Client, org, archives.RunType)
 			if err != nil {
+				hasError = true
 				log.WithError(err).WithField("archive_type", archives.RunType).Error("error archiving org runs")
 			}
 		}
+
+		isPending := len(msgCreated) > 0 || len(runCreated) > 0
+		if isPending {
+			archives.CycleOrgsPending.Inc()
+			archives.OrgPendingStatus.WithLabelValues(orgIDStr, org.Name).Set(1)
+		} else {
+			archives.CycleOrgsUpToDate.Inc()
+		}
+
+		if hasError {
+			archives.CycleOrgsFailed.Inc()
+			archives.OrgFailedStatus.WithLabelValues(orgIDStr, org.Name).Set(1)
+		} else {
+			archives.CycleOrgsCompleted.Inc()
+		}
+
 		cancel()
 	}
 
 	for {
 		start := time.Now().In(time.UTC)
+
+		archives.ResetCycleMetrics()
 
 		// convert the starttime to time.Time
 		layout := "15:04"
@@ -136,6 +170,8 @@ func main() {
 
 			continue
 		}
+
+		archives.CycleOrgsTotal.Set(float64(len(orgs)))
 
 		// for each org, do our export
 		for _, org := range orgs {

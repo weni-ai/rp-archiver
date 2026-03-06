@@ -18,6 +18,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -571,6 +572,11 @@ func CreateArchiveFile(ctx context.Context, db *sqlx.DB, archive *Archive, archi
 	archive.RecordCount = recordCount
 	archive.BuildTime = int(time.Since(start) / time.Millisecond)
 
+	labels := prometheus.Labels{"archive_type": string(archive.ArchiveType), "period": string(archive.Period)}
+	ArchiveCreationDuration.With(labels).Observe(time.Since(start).Seconds())
+	ArchiveRecordsTotal.With(labels).Add(float64(recordCount))
+	ArchiveFileSizeBytes.With(labels).Observe(float64(archive.Size))
+
 	log.WithFields(logrus.Fields{
 		"record_count": recordCount,
 		"filename":     file.Name(),
@@ -602,10 +608,16 @@ func UploadArchive(ctx context.Context, s3Client s3iface.S3API, bucket string, a
 			archive.Hash)
 	}
 
+	uploadStart := time.Now()
 	err := UploadToS3(ctx, s3Client, bucket, archivePath, archive)
 	if err != nil {
+		S3UploadErrorsTotal.Inc()
 		return errors.Wrapf(err, "error uploading archive to S3")
 	}
+
+	labels := prometheus.Labels{"archive_type": string(archive.ArchiveType), "period": string(archive.Period)}
+	S3UploadDuration.With(labels).Observe(time.Since(uploadStart).Seconds())
+	S3UploadBytesTotal.Add(float64(archive.Size))
 
 	archive.NeedsDeletion = true
 
