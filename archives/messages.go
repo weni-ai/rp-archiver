@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -252,6 +253,10 @@ func DeleteArchivedMessages(ctx context.Context, config *Config, db *sqlx.DB, s3
 	archive.NeedsDeletion = false
 	archive.DeletedOn = &deletedOn
 
+	labels := prometheus.Labels{"archive_type": string(MessageType)}
+	RecordsDeletedTotal.With(labels).Add(float64(len(msgIDs)))
+	DeletionDuration.With(labels).Observe(time.Since(start).Seconds())
+
 	logrus.WithField("elapsed", time.Since(start)).Info("completed deleting messages")
 
 	return nil
@@ -385,6 +390,7 @@ func DeleteBroadcasts(ctx context.Context, now time.Time, config *Config, db *sq
 	}
 
 	if count > 0 || skipped > 0 {
+		BroadcastsDeletedTotal.Add(float64(count))
 		logrus.WithFields(logrus.Fields{
 			"elapsed":   time.Since(start),
 			"deleted":   count,

@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -225,6 +226,10 @@ func DeleteArchivedRuns(ctx context.Context, config *Config, db *sqlx.DB, s3Clie
 	}
 	archive.NeedsDeletion = false
 	archive.DeletedOn = &deletedOn
+
+	labels := prometheus.Labels{"archive_type": string(RunType)}
+	RecordsDeletedTotal.With(labels).Add(float64(len(runIDs)))
+	DeletionDuration.With(labels).Observe(time.Since(start).Seconds())
 
 	logrus.WithField("elapsed", time.Since(start)).Info("completed deleting runs")
 
