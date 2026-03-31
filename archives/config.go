@@ -38,6 +38,8 @@ type Config struct {
 	DeleteBatchSize int `help:"the number of records to delete in each batch transaction (default 100)"`
 
 	MaxOpenConnections int `help:"the maximum number of open connections to the database (default 2)"`
+
+	MetricsPort int `help:"the port to expose Prometheus metrics on (default 8080)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -78,6 +80,8 @@ func NewConfig() *Config {
 		DeleteBatchSize: 100,
 
 		MaxOpenConnections: 2,
+
+		MetricsPort: 8080,
 	}
 
 	return &config

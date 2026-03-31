@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -84,7 +85,8 @@ func main() {
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		addr := fmt.Sprintf(":%d", config.MetricsPort)
+		if err := http.ListenAndServe(addr, nil); err != nil {
 			logrus.WithError(err).Fatal("error starting metrics server")
 		}
 	}()
