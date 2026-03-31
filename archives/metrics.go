@@ -20,10 +20,11 @@ var (
 		Help: "Total number of orgs loaded in the current archiving cycle",
 	})
 
-	// CycleOrgsPending is the number of orgs that had missing archives in the current cycle.
+	// CycleOrgsPending is the number of orgs currently being processed (in-progress).
+	// It increments when processing starts and decrements when it finishes (success or failure).
 	CycleOrgsPending = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "archiver_cycle_orgs_pending",
-		Help: "Number of orgs with missing archives found in the current archiving cycle",
+		Help: "Number of orgs currently being processed in the archiving cycle",
 	})
 
 	// CycleOrgsUpToDate is the number of orgs already fully archived (no missing archives).
@@ -44,11 +45,11 @@ var (
 		Help: "Number of orgs that failed during archiving in the current archiving cycle",
 	})
 
-	// OrgPendingStatus is set to 1 for each org that had missing archives in the current cycle.
-	// Labels: org_id, org_name. Use `archiver_org_pending_status == 1` in Grafana to list them.
+	// OrgPendingStatus is set to 1 while the org is being processed, and back to 0 when it finishes.
+	// Labels: org_id, org_name. Use `archiver_org_pending_status == 1` in Grafana to see in-progress orgs.
 	OrgPendingStatus = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "archiver_org_pending_status",
-		Help: "Set to 1 if the org had missing archives in the current archiving cycle",
+		Help: "Set to 1 while the org is being processed, 0 when finished (success or failure)",
 	}, []string{"org_id", "org_name"})
 
 	// OrgFailedStatus is set to 1 for each org that had an error during the current cycle.

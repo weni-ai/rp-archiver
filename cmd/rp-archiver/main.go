@@ -97,9 +97,18 @@ func main() {
 		defer func() { <-semaphore }()
 		// no single org should take more than 12 hours
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour*12)
+		defer cancel()
 
 		log := logrus.WithField("org", org.Name).WithField("org_id", org.ID)
 		orgIDStr := strconv.Itoa(org.ID)
+
+		// Mark org as in-progress: pending goes up now and back down when we finish.
+		archives.CycleOrgsPending.Inc()
+		archives.OrgPendingStatus.WithLabelValues(orgIDStr, org.Name).Set(1)
+		defer func() {
+			archives.CycleOrgsPending.Dec()
+			archives.OrgPendingStatus.WithLabelValues(orgIDStr, org.Name).Set(0)
+		}()
 
 		hasError := false
 		var msgCreated, runCreated []*archives.Archive
@@ -119,11 +128,7 @@ func main() {
 			}
 		}
 
-		isPending := len(msgCreated) > 0 || len(runCreated) > 0
-		if isPending {
-			archives.CycleOrgsPending.Inc()
-			archives.OrgPendingStatus.WithLabelValues(orgIDStr, org.Name).Set(1)
-		} else {
+		if len(msgCreated) == 0 && len(runCreated) == 0 {
 			archives.CycleOrgsUpToDate.Inc()
 		}
 
@@ -133,8 +138,6 @@ func main() {
 		} else {
 			archives.CycleOrgsCompleted.Inc()
 		}
-
-		cancel()
 	}
 
 	for {
