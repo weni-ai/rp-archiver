@@ -1,3 +1,7 @@
+1.5.0
+----------
+ * Archiver metrics
+
 1.4.0
 ----------
  * Config for broadcast delete batch size
