@@ -35,6 +35,51 @@ func setup(t *testing.T) *sqlx.DB {
 	return db
 }
 
+func TestGetActiveOrgsOrdering(t *testing.T) {
+	db := setup(t)
+	ctx := context.Background()
+	config := NewConfig()
+
+	// with default test data all orgs have monthly record_count=0, so tiebreaker is o.id
+	orgs, err := GetActiveOrgs(ctx, db, config)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(orgs))
+	assert.Equal(t, 1, orgs[0].ID)
+	assert.Equal(t, 2, orgs[1].ID)
+	assert.Equal(t, 3, orgs[2].ID)
+
+	// insert monthly archives: Org 2 gets 500, Org 1 gets 100 (Org 3 already has 0)
+	_, err = db.Exec(`
+		INSERT INTO archives_archive(archive_type, created_on, start_date, period, record_count, size, hash, url, needs_deletion, build_time, org_id) VALUES
+		('message', '2017-12-01 00:00:00+00', '2017-12-01', 'M', 100, 0, '', '', FALSE, 0, 1),
+		('message', '2017-12-01 00:00:00+00', '2017-12-01', 'M', 500, 0, '', '', FALSE, 0, 2)
+	`)
+	assert.NoError(t, err)
+
+	// ordering should now be: Org 2 (500), Org 1 (100), Org 3 (0)
+	orgs, err = GetActiveOrgs(ctx, db, config)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(orgs))
+	assert.Equal(t, 2, orgs[0].ID)
+	assert.Equal(t, 1, orgs[1].ID)
+	assert.Equal(t, 3, orgs[2].ID)
+
+	// add a more recent monthly archive for Org 3 with highest record_count
+	_, err = db.Exec(`
+		INSERT INTO archives_archive(archive_type, created_on, start_date, period, record_count, size, hash, url, needs_deletion, build_time, org_id) VALUES
+		('message', '2018-01-01 00:00:00+00', '2018-01-01', 'M', 1000, 0, '', '', FALSE, 0, 3)
+	`)
+	assert.NoError(t, err)
+
+	// ordering should now be: Org 3 (1000), Org 2 (500), Org 1 (100)
+	orgs, err = GetActiveOrgs(ctx, db, config)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(orgs))
+	assert.Equal(t, 3, orgs[0].ID)
+	assert.Equal(t, 2, orgs[1].ID)
+	assert.Equal(t, 1, orgs[2].ID)
+}
+
 func TestGetMissingDayArchives(t *testing.T) {
 	db := setup(t)
 
