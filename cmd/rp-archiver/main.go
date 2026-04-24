@@ -153,7 +153,7 @@ func main() {
 		}
 
 		var orgs []archives.Org
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*15)
 		if config.ArchiveInactive {
 			// get our inactive orgs
 			orgs, err = archives.GetInactiveOrgs(ctx, db, config)
