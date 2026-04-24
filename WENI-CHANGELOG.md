@@ -1,3 +1,8 @@
+1.6.0
+----------
+ * feat: archiving by org priorization
+ * feat: creating archives in parallel by org option
+
 1.5.0
 ----------
  * Archiver metrics
