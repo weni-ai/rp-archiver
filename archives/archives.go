@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -798,12 +799,7 @@ func CreateOrgArchives(ctx context.Context, now time.Time, config *Config, db *s
 	return archives, nil
 }
 
-func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, archive *Archive) error {
-	err := CreateArchiveFile(ctx, db, archive, config.TempDir)
-	if err != nil {
-		return errors.Wrap(err, "error writing archive file")
-	}
-
+func finalizeArchiveAfterFileWritten(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, archive *Archive) error {
 	defer func() {
 		if !config.KeepFiles {
 			err := DeleteArchiveFile(archive)
@@ -814,13 +810,13 @@ func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3
 	}()
 
 	if config.UploadToS3 {
-		err = UploadArchive(ctx, s3Client, config.S3Bucket, archive)
+		err := UploadArchive(ctx, s3Client, config.S3Bucket, archive)
 		if err != nil {
 			return errors.Wrap(err, "error writing archive to s3")
 		}
 	}
 
-	err = WriteArchiveToDB(ctx, db, archive, config)
+	err := WriteArchiveToDB(ctx, db, archive, config)
 	if err != nil {
 		return errors.Wrap(err, "error writing record to db")
 	}
@@ -828,7 +824,35 @@ func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3
 	return nil
 }
 
+func createArchive(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, archive *Archive) error {
+	err := CreateArchiveFile(ctx, db, archive, config.TempDir)
+	if err != nil {
+		return errors.Wrap(err, "error writing archive file")
+	}
+
+	return finalizeArchiveAfterFileWritten(ctx, db, config, s3Client, archive)
+}
+
+// createArchiveParallelFilesLimitedUploadDB runs CreateArchiveFile without a semaphore (all archives
+// for the org may build files concurrently), then serializes upload + WriteArchiveToDB to at most
+// maxConcurrentArchiveUploadDB goroutines at a time.
+func createArchiveParallelFilesLimitedUploadDB(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, archive *Archive, uploadDBSem chan struct{}) error {
+	err := CreateArchiveFile(ctx, db, archive, config.TempDir)
+	if err != nil {
+		return errors.Wrap(err, "error writing archive file")
+	}
+
+	uploadDBSem <- struct{}{}
+	defer func() { <-uploadDBSem }()
+
+	return finalizeArchiveAfterFileWritten(ctx, db, config, s3Client, archive)
+}
+
 func createArchives(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, org Org, archives []*Archive) error {
+	if config.ParallelArchiveFileCreation {
+		return createArchivesParallelFilesLimitedUploadDB(ctx, db, config, s3Client, org, archives)
+	}
+
 	log := logrus.WithFields(logrus.Fields{
 		"org":    org.Name,
 		"org_id": org.ID,
@@ -858,6 +882,49 @@ func createArchives(ctx context.Context, db *sqlx.DB, config *Config, s3Client s
 		}).Info("archive complete")
 	}
 
+	return nil
+}
+
+func createArchivesParallelFilesLimitedUploadDB(ctx context.Context, db *sqlx.DB, config *Config, s3Client s3iface.S3API, org Org, archives []*Archive) error {
+	log := logrus.WithFields(logrus.Fields{
+		"org":    org.Name,
+		"org_id": org.ID,
+	})
+
+	uploadDBSem := make(chan struct{}, config.MaxConcurrentArchiveUploadDB)
+
+	var wg sync.WaitGroup
+	for _, a := range archives {
+		archive := a
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			log.WithFields(logrus.Fields{
+				"start_date":   archive.StartDate,
+				"end_date":     archive.endDate(),
+				"period":       archive.Period,
+				"archive_type": archive.ArchiveType,
+			}).Info("starting archive")
+
+			start := time.Now()
+
+			err := createArchiveParallelFilesLimitedUploadDB(ctx, db, config, s3Client, archive, uploadDBSem)
+			if err != nil {
+				log.WithError(err).Error("error creating archive")
+				return
+			}
+
+			elapsed := time.Since(start)
+			log.WithFields(logrus.Fields{
+				"id":           archive.ID,
+				"record_count": archive.RecordCount,
+				"elapsed":      elapsed,
+			}).Info("archive complete")
+		}()
+	}
+
+	wg.Wait()
 	return nil
 }
 
