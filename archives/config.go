@@ -31,6 +31,14 @@ type Config struct {
 
 	MaxConcurrentArchivation int `help:"max concurrent org archivation (default 2)"`
 
+	// ParallelArchiveFileCreation enables per-org parallelism: all CreateArchiveFile calls may overlap,
+	// while S3 upload plus DB write are limited to two at a time.
+	ParallelArchiveFileCreation bool `help:"when true, build archive files in parallel per org but cap concurrent upload+DB to two (default false)"`
+
+	// MaxConcurrentArchiveUploadDB limits concurrent finalizeArchiveAfterFileWritten (S3 upload + DB write)
+	// when ParallelArchiveFileCreation is enabled. CreateArchiveFile is not limited by this semaphore.
+	MaxConcurrentArchiveUploadDB int `help:"max concurrent upload+DB operations when ParallelArchiveFileCreation is true (default 2)"`
+
 	ArchiveInactive bool `help:"archive inactive orgs (default false)"`
 
 	CommonTimeout int `help:"common timeout for many operations, limit in minutes (default 5)"`
@@ -70,6 +78,9 @@ func NewConfig() *Config {
 		BuildRollupArchiveTimeout: 1,
 
 		MaxConcurrentArchivation: 2,
+
+		ParallelArchiveFileCreation:  false,
+		MaxConcurrentArchiveUploadDB: 2,
 
 		ArchiveInactive: false,
 
