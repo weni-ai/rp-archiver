@@ -1,35 +1,45 @@
 <!--
 Sync Impact Report
-- Version change: unversioned template → 1.0.0 (first generation)
-- Modified principles: none (all template placeholders replaced)
+- Version change: 1.0.0 → 2.0.0 (MAJOR: Principle I redefined to admit specs without a
+  product spec and the SDD Lite cycle; Principles II, VII, VIII, XI, XII, XV, XVI
+  materially rewritten; five principles added)
+- Modified principles:
+  - I. Specification Traceability: two origins (derived from a product spec, or born in
+    engineering with "## Origin Without Product Spec"); full and lite cycles, chosen by
+    complexity, not by origin
+  - II. No Silent Divergence: scoped to specs derived from a product spec
+  - VII. Never Trust the Client: no interpolation into queries, commands, templates, file
+    paths, S3 keys, or outbound URLs; authenticity, expiry, and replay checks for any
+    inbound callback or token; /metrics exception reinforced and moved to Principle XVII
+  - VIII. Fail Gracefully and Predictably: atomic multi-step writes, no premature external
+    side effects
+  - XI. Scalability and Peak Load: bounded and indexed queries, no N+1 loops, no OS
+    processes in HTTP handlers, scope-keyed caches with TTL
+  - XII. Observability and Diagnosable Errors: errors MUST NOT be silently swallowed
+  - XV. Tests Exercise Flows: real entry point and persistence; cross-org refusal paths;
+    S3 handling moved to Principle XVIII
+  - XVI. Explicit Over Clever: comment and language rules moved to Principle XX
 - Added principles:
-  - I. Specification Traceability (root)
-  - II. No Silent Divergence (root)
-  - III. Version Control and Review (root)
-  - IV. Commit Messages (root; justified exception for imported upstream commits)
-  - V. Contained Changes (backend)
-  - VI. Security and Secrets (root)
-  - VII. Never Trust the Client (backend; justified exception for /metrics)
-  - VIII. Fail Gracefully and Predictably (backend)
-  - IX. Bounded Retry Over REST (backend)
-  - X. Verified Archive Before Deletion (project-specific)
-  - XI. Scalability and Peak Load (backend; justified single-instance exception)
-  - XII. Observability and Diagnosable Errors (root Observability + backend Diagnosable Errors)
-  - XIII. Versioned Contracts (root)
-  - XIV. Changelog Maintenance (root; applied to a service, not a library)
-  - XV. Tests Exercise Flows (backend)
-  - XVI. Explicit Over Clever (backend)
-- Added sections: Technology & Operational Constraints; Development Workflow & Quality Gates
+  - XVII. Explicit, Scoped Authorization (backend; justified exception for /metrics)
+  - XVIII. Verification Integrity (root)
+  - XIX. Proportional Design (root)
+  - XX. Code Clarity and Language (root)
+  - XXI. Backward-Compatible Data Evolution (backend; adapted, schema owned by RapidPro)
+- Added sections: none (Development Workflow & Quality Gates gained lite-cycle and
+  security gates)
 - Removed sections: none
 - Templates requiring updates (not modified by setup-engineering):
   - ✅ .specify/templates/plan-template.md: Constitution Check derives gates from this file
-  - ⚠ .specify/templates/spec-template.md: lacks the "## Inheritance from Product Spec"
-    opening section required by Principle I; add it manually to each spec until updated
+  - ⚠ .specify/templates/spec-template.md: still the stock Speckit template; it has neither
+    "## Inheritance from Product Spec" nor "## Origin Without Product Spec" (Principle I).
+    Install the vtex-cx-engineering preset, which replaces it
   - ⚠ .specify/templates/tasks-template.md: marks tests as OPTIONAL; Principle XV prevails
-    and requires flow-test tasks for every user story
+    and requires flow-test tasks for every user story in the full cycle
 - Follow-up TODOs:
   - TODO(PRODUCT_SPEC_REPO): identify the product spec repository and tagging convention
     referenced by Principles I and II
+  - TODO(SPECKIT_PRESET): install the vtex-cx-engineering preset (spec-template and
+    speckit.specify with the origin gate)
   - TODO(BRANCH_PROTECTION): confirm that main on weni-ai/rp-archiver blocks direct pushes
     and requires 1 approval + the CI "Test" check (could not be verified locally)
   - TODO(MERGE_STRATEGY): choose a merge strategy whose resulting commits on main comply
@@ -37,23 +47,36 @@ Sync Impact Report
   - TODO(VULN_SCAN): add a vulnerability check (e.g. govulncheck ./...) to CI; review
     end-of-support dependencies (aws-sdk-go v1, raven-go via logrus_sentry)
   - TODO(S3_RETRY_POLICY): set the S3 SDK retry bound explicitly (Principle IX)
-  - TODO(S3_FLOW_TESTS): TestArchiveOrgMessages/TestArchiveOrgRuns pass silently without
-    AWS credentials (Principle XV)
+  - TODO(S3_HERMETIC_TESTS): TestArchiveOrgMessages/TestArchiveOrgRuns call live S3 in CI
+    using repository secrets and pass silently without credentials; replace with a fake
+    s3iface.S3API in the per-change suite and move live-S3 coverage to a labeled
+    integration stage (Principles XV, XVIII)
+  - TODO(METRICS_NETWORK): confirm that the metrics port is not exposed through any
+    ingress or public load balancer in weni-ai/kubernetes-manifests-platform (Principle
+    XVII exception)
   - TODO(PEAK_LOAD): declare current peak figures (Principle XI)
   - TODO(CHANGELOG_FORMAT): decide whether WENI-CHANGELOG.md adopts Keep a Changelog
     categories (Principle XIV)
   - TODO(GO_TOOLCHAIN): CI uses golang:1.25 while go.mod and docker/Dockerfile use 1.23
+- Project adaptation to review: Principle I recommends the full cycle for deletion,
+  contract, and cross-org concurrency changes. This SHOULD is a project choice, not a
+  base rule
 - Known compliance gaps in current code (recorded, not changed):
   - cmd/rp-archiver/main.go logs the full DB URL (may include a password) when it contains
-    TimeZone (VI, XII)
+    TimeZone, and logs the Sentry DSN when it is invalid (VI, XII)
   - archives/s3.go debug handler logs signed AWS request headers (VI, XII)
-  - archives/messages.go DeleteBroadcasts uses tx.Exec without a context; archives/s3.go
-    TestS3 calls HeadBucket without a context (VIII)
+  - archives/messages.go DeleteBroadcasts uses db.Get and tx.Exec without a context;
+    archives/s3.go TestS3 calls HeadBucket without a context (VIII)
+  - archives/messages.go DeleteBroadcasts runs one count query per broadcast (N+1) (XI)
+  - cmd/rp-archiver/main.go registers /metrics for every HTTP method instead of GET only
+    (XVII)
+  - cmd/rp-archiver/main.go reconnect path hard-codes SetMaxOpenConns(2) instead of
+    config.MaxOpenConnections (XVI, XIX)
   - inline meaningful literals (time.Hour*12, time.Hour*3, time.Minute*15, 5e9, 1e9,
     LIMIT 1000000) (XVI)
 
 Provenance:
-- Source: weni-ai/vtex-cx-engineering-constitutions (main)
+- Source: weni-ai/vtex-cx-engineering-constitutions (main @ 6db621b)
 - Bases: base-constitution.md, backend/base-constitution.md
 - Domains: backend
 - Project layer: weni-ai/rp-archiver (Go batch worker; fork of nyaruka/rp-archiver)
@@ -70,16 +93,19 @@ repository.
 
 ### I. Specification Traceability
 
-Every engineering spec under `specs/<NNN-feature>/spec.md` MUST derive from exactly one
+An engineering spec under `specs/<NNN-feature>/spec.md` either derives from a product
+spec or originates in engineering. Both are regular paths of the process, and neither
+requires a justification.
+
+When the change has a product spec, the engineering spec MUST derive from exactly one
 approved product spec and MUST reference it by an immutable, pinned version (commit or
 tag); a mutable URL or ID alone MUST NOT be used. The product spec MUST exist and be
 tagged before its engineering spec is created. An engineering spec MUST NOT redefine the
 "what" it inherits: problem, scope, success criteria, and binding decisions belong to the
 product spec. A technical architecture document SHOULD be produced for non-trivial
 features; when it exists it MUST be linked from the engineering spec, pinned by
-commit/tag, but its absence MUST NOT block the engineering spec.
-
-Every engineering spec MUST open with an inheritance section in exactly this format:
+commit/tag, but its absence MUST NOT block the engineering spec. Such a spec MUST open
+with an inheritance section in exactly this format:
 
 ```
 ## Inheritance from Product Spec
@@ -91,25 +117,49 @@ Every engineering spec MUST open with an inheritance section in exactly this for
 - Divergences: <none | link to amendment>
 ```
 
-In this repository, `Scope of this spec` MUST name the archiver slice being changed
+When the change is born in engineering (a hotfix, a fix, technical debt, an upstream
+merge), the engineering spec states its own "what" and MUST open with an origin section
+in exactly this format:
+
+```
+## Origin Without Product Spec
+- Product Spec: none
+- Problem: <what is wrong or missing, in one or two sentences>
+- Acceptance criteria: <observable outcomes that prove the change is done>
+```
+
+A product spec that exists but cannot be pinned is a blocker, not an absence: the
+origin section MUST NOT be used to bypass it. In this repository, `Scope of this spec`,
+or the `Problem` of an engineering-born spec, MUST name the archiver slice being changed
 (archive building, rollup, upload, deletion, or cycle scheduling) and MUST NOT claim
 behaviour owned by RapidPro or mailroom.
 
-**Rationale:** Traceability from product intent to technical execution keeps decisions
-auditable. Pinning the version guarantees every team implements the same revision of a
-feature. A mandatory product spec prevents work without an agreed problem; an optional
-architecture doc avoids blocking trivial designs; a single inheritance format keeps the
-link uniform and machine-checkable.
+Either origin MAY follow the full cycle (specify, plan, tasks, analyze, implement) or the
+lite cycle (SDD Lite: specify, then implement directly). The cycle MUST be chosen by the
+complexity of the change, not by its origin. A lite-cycle change is bound by every MUST
+in this constitution exactly like a full-cycle change; it only skips the intermediate
+artifacts. Changes to a deletion path (Principle X), to a public contract (Principle
+XIII), or to how org workers share state (Principle XVI) SHOULD follow the full cycle.
+
+**Rationale:** Traceability from intent to technical execution keeps decisions auditable
+and lets any change be traced back to the need that justified it. When the change is
+born in product, pinning the product spec guarantees every team implements the same
+revision. When it is born in engineering, the spec's own problem and acceptance criteria
+are what the change is verified against. Choosing the cycle by complexity keeps trivial
+fixes cheap without letting risky changes, which in this service can delete production
+data, skip planning.
 
 ### II. No Silent Divergence
 
-When a technical need contradicts something inherited from the product spec (scope,
-success criteria, or a binding decision), the divergence MUST NOT be implemented silently
-in code. It MUST be raised as an amendment in the product repository and recorded in the
-`Divergences` field of the inheritance section, linking to that amendment. Once the
-amendment is approved and tagged, the spec's `Pinned version` MUST be updated to it. A
-technical difference that contradicts nothing inherited is an implementation decision,
-not a divergence, and MUST be recorded in the engineering spec.
+This principle applies only to engineering specs derived from a product spec; a spec
+without one inherits nothing it could diverge from. When a technical need contradicts
+something inherited from the product spec (scope, success criteria, or a binding
+decision), the divergence MUST NOT be implemented silently in code. It MUST be raised as
+an amendment in the product repository and recorded in the `Divergences` field of the
+inheritance section, linking to that amendment. Once the amendment is approved and
+tagged, the spec's `Pinned version` MUST be updated to it. A technical difference that
+contradicts nothing inherited is an implementation decision, not a divergence, and MUST
+be recorded in the engineering spec.
 
 **Rationale:** With the product spec as the single source of truth, a silent deviation in
 code lets intent and implementation drift apart with no audit trail. Routing divergences
@@ -181,33 +231,40 @@ message data, so prevention is far cheaper than remediation.
 Everything that reaches the archiver from a source it does not control MUST be treated
 as potentially malicious, incomplete, or incorrect until validated. Here that means
 configuration (file, environment, flags), rows written to the RapidPro database by other
-services, and responses from S3.
+services, responses from S3, and any HTTP request to a port the process exposes.
 
 - Configuration MUST be validated for type, format, range, and cross-field rules at
   startup, and the process MUST refuse to start on invalid configuration. A new
-  configuration option MUST ship with its validation in the same change.
-- SQL MUST use bind parameters (`$1`, sqlx named parameters); external values MUST NOT be
-  interpolated into SQL text.
+  configuration option MUST ship with its validation in the same change. Values used to
+  build outbound targets (`S3Endpoint`, `S3Region`, `S3Bucket`) MUST be validated before
+  the first request is made.
+- External values MUST NOT be interpolated into SQL text, shell commands, templates, file
+  paths, S3 object keys, or outbound URLs. SQL MUST use bind parameters (`$1`, sqlx named
+  parameters). File names under `TempDir` and S3 keys MUST be built only from validated
+  typed fields (`org_id`, archive type, period, dates, hash), never from free-text values
+  such as `org.Name`.
 - Data read from the database MUST NOT be assumed well-formed. Unexpected values MUST
   fail the affected archive explicitly instead of producing a corrupt archive, and
   destructive actions MUST re-check counts first (Principle X).
-- Authorization MUST be enforced server-side on every request to any HTTP endpoint the
-  process exposes. Exception: `GET /metrics` is read-only and carries no archived record
-  content. Its authorization boundary is the network, so it MUST be reachable only from
-  the internal monitoring network, and exposing it publicly is a violation. Any other
-  endpoint MUST implement server-side authorization.
+- The archiver currently receives no webhooks, callbacks, queue messages, or tokens. Any
+  that is introduced MUST be verified for authenticity, expiry, and replay before any side
+  effect, using a server-fixed algorithm and constant-time secret comparison
+  (`crypto/subtle`, `hmac.Equal`).
+- Authorization for every HTTP endpoint the process exposes is governed by Principle
+  XVII.
 
-**Rationale:** External sources run outside the archiver's control and can be wrong or
-hostile. Validating at the boundary prevents injection, corrupt archives, and, because
-this service deletes data, irreversible loss caused by inputs nobody checked.
+**Rationale:** External sources run outside the archiver's control and can be wrong,
+replayed, or hostile. Validating at the boundary and keeping external values out of
+queries, paths, and outbound targets prevents injection, path traversal, SSRF, and,
+because this service deletes data, irreversible loss caused by inputs nobody checked.
 
 ### VIII. Fail Gracefully and Predictably
 
 Every call to PostgreSQL or S3 MUST carry a `context.Context` with an explicit deadline,
-using the context-aware API (`QueryxContext`, `ExecContext`, `BeginTxx(ctx, …)`,
-`*WithContext`), and MUST NOT block indefinitely. Deadlines MUST come from `Config`
-fields (`CommonTimeout`, `RollupOrgTimeout`, `BuildRollupArchiveTimeout`) or named
-constants. Failures MUST be handled explicitly:
+using the context-aware API (`QueryxContext`, `ExecContext`, `GetContext`,
+`BeginTxx(ctx, …)`, `*WithContext`), and MUST NOT block indefinitely. Deadlines MUST come
+from `Config` fields (`CommonTimeout`, `RollupOrgTimeout`, `BuildRollupArchiveTimeout`)
+or named constants. Failures MUST be handled explicitly:
 
 - A failure while archiving one org MUST be contained. It MUST be logged at error level
   with context (Principle XII) and reflected in `archiver_cycle_orgs_failed` and
@@ -216,13 +273,17 @@ constants. Failures MUST be handled explicitly:
   initialization; inside the archiving cycle, errors MUST be returned and handled.
 - Errors MUST be wrapped with context (`errors.Wrap`) and MUST NOT leak internals such as
   connection strings or credentials.
-- Partial work MUST NOT leak. Database writes for one archive MUST happen in a single
-  transaction that is rolled back on error, and temporary files MUST be removed on
-  failure unless `KeepFiles` is set.
+- Multi-step writes that must succeed or fail together MUST run atomically. Database
+  writes for one archive MUST happen in a single transaction that is rolled back on
+  error, and temporary files MUST be removed on failure unless `KeepFiles` is set.
+- External side effects MUST NOT happen before the state that justifies them is durable:
+  the `archives_archive` row is written only after the S3 upload succeeds, and records are
+  deleted only after that row is committed (Principles IX, X).
 
 **Rationale:** Failure is a certainty, not an edge case: database connections break and
-S3 endpoints throttle. Explicit deadlines and per-org containment keep one bad org or one
-slow dependency from stalling the whole daily cycle or crashing the process.
+S3 endpoints throttle. Explicit deadlines, atomic writes, and per-org containment keep
+one bad org or one slow dependency from corrupting archive state, stalling the whole
+daily cycle, or crashing the process.
 
 ### IX. Bounded Retry Over REST
 
@@ -287,6 +348,15 @@ inside the process through `MaxConcurrentArchivation`, `ParallelArchiveFileCreat
 MUST NOT happen until a spec introduces cross-instance coordination and amends this
 principle.
 
+Every collection query MUST be bounded by `org_id` and a date range, and by a named cap
+or a streaming cursor when the range can be large. Queries MUST filter on indexed columns
+of the RapidPro schema on the hot paths (`org_id`, `created_on`, `modified_on`). N+1
+query loops MUST NOT be introduced: per-row lookups inside a loop over a result set MUST
+be replaced by a set-based query or a batched one. OS processes MUST NOT be spawned from
+HTTP handlers. The archiver keeps no shared cache today; a cache introduced for
+org-scoped data MUST key on `org_id`, define an explicit TTL, and be invalidated or
+versioned by every write path that mutates the underlying data.
+
 The peak load the archiver is expected to sustain MUST be declared in each engineering
 spec as peak, not average. At minimum that means records per day for the largest org per
 archive type, the total archive backlog per cycle, the largest expected archive size, and
@@ -294,9 +364,10 @@ the expected cycle duration against the 24-hour window between `StartTime` runs.
 
 **Rationale:** Capacity is a design input, not something to discover during an incident.
 Archiving load is dominated by the largest orgs and by backfills, so sizing for the
-average guarantees an overrunning cycle. Keeping durable state external makes restarts
-safe; declaring the single-instance limit makes the real scaling ceiling explicit and
-reviewable.
+average guarantees an overrunning cycle. Bounded, indexed, set-based queries keep the
+largest org from exhausting connections or locking the shared RapidPro database. Keeping
+durable state external makes restarts safe; declaring the single-instance limit makes the
+real scaling ceiling explicit and reviewable.
 
 ### XII. Observability and Diagnosable Errors
 
@@ -307,6 +378,11 @@ URLs, AWS keys, signed request headers, the Sentry DSN) or sensitive personal da
 includes archived record content: message text, contact URNs (phone numbers, e-mail
 addresses), contact names, and run values or results MUST NOT be logged or sent to
 Sentry.
+
+Errors MUST NOT be silently swallowed. A returned error MUST either be handled as part of
+expected control flow (for example, an org skipped because it has nothing to archive) or
+recorded with structured context; discarding it with `_` or an empty branch MUST NOT
+happen without a comment stating why the failure is harmless.
 
 Every error-level log is forwarded to Sentry by the logrus hook (Error/Fatal/Panic), and
 each one MUST carry enough context to be located and filtered without reproducing it.
@@ -328,8 +404,9 @@ SHOULD expose duration and error metrics following the `archiver_*` conventions 
 
 **Rationale:** Structured, privacy-safe telemetry makes incidents diagnosable without
 creating new exposure. This service handles message content and contact URNs in bulk, so
-one careless log line could leak personal data at scale. Opaque org and archive
-identifiers give investigators exactly the filtering they need.
+one careless log line could leak personal data at scale. A swallowed error in a deletion
+or upload path is a failure nobody can investigate. Opaque org and archive identifiers
+give investigators exactly the filtering they need.
 
 ### XIII. Versioned Contracts
 
@@ -369,8 +446,11 @@ changelog keeps upstream merges clean and shows what the fork adds.
 
 ### XV. Tests Exercise Flows
 
-Every flow MUST have at least one test covering the complete use case, from input to
-resulting effect. In this repository the flows include, at minimum:
+Every flow MUST have at least one test covering the complete use case through its real
+entry point and persistence layer, from input to resulting effect. In this repository
+the entry points are the exported cycle functions (`ArchiveOrg`, `GetActiveOrgs`,
+`GetInactiveOrgs`, `DeleteBroadcasts`) running against a real PostgreSQL. The flows
+include, at minimum:
 
 - building missing monthly and daily archives for an org, for messages and runs;
 - monthly rollups;
@@ -385,17 +465,22 @@ archive rows, files or S3 objects, and deleted rows. Tests of a single function 
 they MUST NOT be the only coverage a flow has. Every flow MUST cover its success path and
 its failure paths; an error path that no test exercises MUST NOT be considered covered.
 
-Tests run against a real PostgreSQL with `go test -p=1 ./...`; packages share one
-database and MUST NOT run in parallel. A flow test that silently passes when a
-dependency is unavailable MUST NOT count as coverage. A test that needs S3 MUST either
-run against a fake implementing `s3iface.S3API` or call `t.Skip` with a reason, and CI
-MUST run it unskipped. Speckit `tasks.md` files MUST include flow-test tasks for every
-user story.
+Every flow scoped to an org MUST also cover its refusal paths: archiving or deleting for
+one org MUST be shown to leave other orgs' records, archives, and broadcasts unchanged,
+and every deletion abort (Principle X) MUST be shown to leave persisted state unchanged.
+An HTTP endpoint that requires authorization MUST have tests proving that unauthenticated
+and unauthorized requests are rejected.
+
+Tests run with `go test -p=1 ./...`; packages share one database and MUST NOT run in
+parallel. S3 handling in tests is governed by Principle XVIII. Speckit `tasks.md` files
+MUST include flow-test tasks for every user story; a lite-cycle change MUST still ship
+its flow tests in code.
 
 **Rationale:** A suite of isolated function tests can be green while their composition is
-broken. In the archiver, that means archives that never get uploaded or records deleted
-without a valid archive. Failure paths are the least exercised in development and the
-most expensive in production, especially when they guard deletion.
+broken. In the archiver, that means archives that never get uploaded, records deleted
+without a valid archive, or one org's data leaking into another org's archive. Failure
+and refusal paths are the least exercised in development and the most expensive in
+production, especially when they guard deletion.
 
 ### XVI. Explicit Over Clever
 
@@ -404,17 +489,134 @@ implicit control flow MUST NOT be introduced to save lines. Concurrency MUST be 
 goroutines, semaphores, and shared state MUST be visible at the point of use, and
 variables written from goroutines MUST be goroutine-local or synchronized. Any literal
 that carries meaning (a timeout, a size threshold such as the single-part upload limit,
-a batch size, a query `LIMIT`, a step cap) MUST be a named constant or a `Config` field
-rather than an inline value. Literals with no meaning beyond their own value, such as an
-index of 0 or an increment of 1, are exempt. Added or modified code MUST comply;
-pre-existing literals elsewhere are fixed in their own change (Principle V). Comments
-MUST explain why: the constraint, the trade-off, or the non-obvious reason. A comment
-that restates what the code says is a signal that the code SHOULD be rewritten to say it.
+a batch size, a query `LIMIT`, a step cap, a connection-pool size) MUST be a named
+constant or a `Config` field rather than an inline value. Literals with no meaning beyond
+their own value, such as an index of 0 or an increment of 1, are exempt. Added or
+modified code MUST comply; pre-existing literals elsewhere are fixed in their own change
+(Principle V).
 
-**Rationale:** Code is read far more often than it is written, usually by someone without
-the original context. An unexplained timeout or size limit is a decision nobody can
-review, and implicit sharing between concurrent org workers produces bugs that only
-appear under production load.
+**Rationale:** An unexplained timeout or size limit is a decision nobody can review, and
+implicit sharing between concurrent org workers produces bugs that only appear under
+production load.
+
+### XVII. Explicit, Scoped Authorization
+
+Every HTTP endpoint the process exposes MUST declare an explicit check that verifies the
+caller may perform that action on that resource; identity alone MUST NOT be treated as
+authorization. Access MUST be denied by default: a handler registered without such a
+check MUST be rejected in review rather than left open. Endpoints MUST expose only the
+HTTP methods their contract requires, registered with a method-qualified pattern (e.g.
+`GET /metrics`); other verbs MUST be closed. The base rule's prohibition of Django REST
+Framework's `IsAuthenticated` and `AllowAny` has no literal target in this Go service;
+its intent applies: middleware that only checks for a valid credential, or that
+unconditionally grants access, MUST NOT be used as an endpoint's authorization.
+
+Exception: `GET /metrics` on `MetricsPort` is reachable without an authenticated caller
+and without a dedicated in-process check. Its authorization boundary is the network: it
+MUST be reachable only from the internal monitoring network that scrapes it (cluster
+networking, never an ingress or public load balancer), and exposing it publicly is a
+violation. This exception is justified because the endpoint is read-only, triggers no
+side effect, carries no archived record content, contact data, or secrets (only counters,
+gauges, `org_id`, and `org.Name` labels), and is consumed by the Prometheus scraper of
+the platform cluster. A change that adds a label, a metric carrying record content or
+personal data, a write action, or a new exposure path for this port voids the exception:
+`/metrics` MUST then implement a dedicated check (such as a scrape bearer token compared
+in constant time) and the engineering spec MUST record the justification. Any other
+endpoint MUST implement its own dedicated check, named for the reason it exists.
+
+The org is the scope boundary. Every query that reads, writes, or deletes RapidPro
+records or `archives_archive` rows MUST bind `org_id` as a parameter, and a missing or
+zero `org_id` MUST fail the operation rather than widen it across orgs. Related records
+MUST be checked against the same org: a rollup MUST link only archives of its own org,
+and broadcast deletion MUST select broadcasts by `org_id` before checking message
+references. Org workers MUST re-read the archive and record state from the database
+before each destructive step (Principle X) rather than trusting values computed earlier
+in the cycle.
+
+**Rationale:** The archiver holds delete access to every org's data, so an omitted org
+predicate is a cross-tenant incident, not a bug. Denying by default and closing unused
+verbs keep any future endpoint from opening silently. The /metrics exception is narrow
+and conditional, and it is stated here so that any change crossing its limits is
+visible in review.
+
+### XVIII. Verification Integrity
+
+Automated checks and tests MUST verify real behaviour and MUST fail when the behaviour,
+contract, or guard they cover regresses. A test MUST NOT mock, stub, or bypass the
+subject it claims to prove: the org filter, the deletion guards of Principle X, or the
+SQL issued against PostgreSQL.
+
+The per-change suite (the CI `Test` job, run on every push and pull request) MUST be
+deterministic and hermetic. The PostgreSQL service container started by the job is part
+of the test harness. S3 is outside it, so the per-change suite MUST exercise S3 through a
+fake implementing `s3iface.S3API` and MUST NOT call a live S3 endpoint or depend on AWS
+credentials. A test that silently passes when a dependency is unavailable MUST NOT count
+as coverage. Tests that intentionally exercise live S3 MAY exist when labeled as
+integration tests (e.g. an `integration` build tag), run in a dedicated CI stage separate
+from the per-change suite, and target a non-production bucket. Failing checks, `go vet`,
+linters, or coverage gates MUST NOT be silenced or skipped without an explicit
+justification in the pull request.
+
+**Rationale:** A green suite that skips S3 when credentials are absent, or mocks away the
+guard it claims to test, creates false confidence exactly where deletion bugs hide.
+Hermetic boundaries keep the per-change suite fast, reproducible, and free of shared
+secrets, while a labeled integration stage still proves the real S3 wiring.
+
+### XIX. Proportional Design
+
+Every change MUST use the simplest design that satisfies the current specification within
+the existing layout (`cmd/rp-archiver` for wiring, package `archives` for domain logic).
+Abstractions, indirection layers, extension points, or configuration options MUST NOT be
+introduced for hypothetical future needs when only one concrete use case exists; the
+`s3iface.S3API` boundary is an existing architectural boundary, not a speculative one.
+Every decision encoded in code or configuration MUST have a single source of truth: a
+default belongs to `archives.NewConfig()` and MUST NOT be repeated as a literal elsewhere,
+and a value configured in `Config` MUST NOT be overridden by a hard-coded one on another
+code path. Incidental duplication MAY remain local when extracting it would create
+premature coupling. Root causes MUST be fixed rather than masked with workarounds, and
+redundant checks SHOULD NOT repeat invariants already enforced by types, the RapidPro
+schema, or startup validation.
+
+**Rationale:** Speculative abstractions and redundant defensive checks add cost without
+solving a real problem. A setting with two sources of truth means the configured value is
+not the running value, which is how a reconnect or retry path quietly behaves differently
+from what operators deployed.
+
+### XX. Code Clarity and Language
+
+All code, identifiers, comments, commit messages, specs, and technical documentation
+MUST be written in English; domain terms that only carry meaning in their original
+language MAY remain untranslated. Code MUST prioritize clarity over brevity or
+cleverness. Comments MUST explain why a non-obvious decision was made (the constraint,
+the trade-off, or the external quirk such as an S3 or RapidPro schema behaviour) and MUST
+NOT restate what the code already says; code that needs a comment to explain what it does
+SHOULD be rewritten to say it directly. Dead branches and commented-out code MUST NOT be
+committed. Code imported verbatim from upstream `nyaruka/rp-archiver` is held to this
+principle only when Weni modifies it (Principle V).
+
+**Rationale:** A shared language and self-explanatory code let any engineer read, review,
+and maintain the fork without hidden context. Comments that capture reasoning preserve
+constraints the code cannot express, while narrative comments and dead code drift out of
+sync and mislead readers.
+
+### XXI. Backward-Compatible Data Evolution
+
+The base rule governs schema changes committed with the code that needs them. This
+project owns no schema: the RapidPro schema belongs to RapidPro's migrations, and
+RP-Archiver MUST NOT create or alter it (see Technology & Operational Constraints). The
+rule therefore applies as follows. A schema change the archiver needs MUST be made in
+RapidPro, and the archiver change that depends on it MUST NOT be released before that
+migration is deployed. Archiver queries MUST remain compatible with both the currently
+deployed RapidPro schema and the one being rolled out, so either side can roll back
+without data loss. A destructive RapidPro change to a column the archiver reads or
+deletes from (drop, rename, tightened type) MUST follow expand-and-contract, and the
+archiver MUST stop depending on the old column before the contract step. The archive
+file format evolves under Principle XIII.
+
+**Rationale:** RapidPro and the archiver deploy independently and never switch
+atomically. Keeping archiver queries valid across both schema versions keeps either
+release revertible, and ordering the rollout prevents an archiver that queries a column
+that does not exist yet, or deletes using one that has already changed meaning.
 
 ## Technology & Operational Constraints
 
@@ -423,13 +625,15 @@ appear under production load.
   `archives`.
 - **Database**: PostgreSQL with the RapidPro schema, accessed through `sqlx` and
   `lib/pq`. The schema is owned by RapidPro's migrations, and RP-Archiver MUST NOT create
-  or alter it. Connections MUST run in UTC; database URLs MUST NOT specify `TimeZone`
-  (enforced in `main.go`). The pool is bounded by `MaxOpenConnections`.
+  or alter it (Principle XXI). Connections MUST run in UTC; database URLs MUST NOT specify
+  `TimeZone` (enforced in `main.go`). The pool is bounded by `MaxOpenConnections`.
 - **Object storage**: S3 or an S3-compatible endpoint through `aws-sdk-go`, behind
   `s3iface.S3API`. Objects MUST be written with a private ACL.
 - **Configuration**: `ezconf` with three tiers, lowest precedence first: `archiver.toml`,
   then `ARCHIVER_*` environment variables, then CLI flags. Deployments configure through
   the environment.
+- **Exposed surface**: the only listening port is `MetricsPort`, serving `GET /metrics`
+  under the exception in Principle XVII.
 - **Telemetry**: `logrus` with the Sentry hook (`logrus_sentry`) for Error, Fatal, and
   Panic, plus Prometheus metrics on `MetricsPort` at `/metrics`.
 - **Packaging and deployment**: a multi-stage Alpine image (`docker/Dockerfile`).
@@ -441,25 +645,32 @@ appear under production load.
 
 ## Development Workflow & Quality Gates
 
-Every pull request MUST pass these gates before merge:
+Every pull request MUST pass these gates before merge, whichever cycle produced it:
 
 1. Reviewed and approved by at least one person, with the CI `Test` job green
    (Principle III).
 2. Commits follow Conventional Commits, apart from the upstream-import exception
    (Principle IV).
 3. Scope limited to the stated change; upstream merges are isolated (Principle V).
-4. Touched flows are covered end-to-end on success and failure paths (Principle XV), and
-   deletion changes include the abort-case tests (Principle X).
-5. Contract changes are versioned, backward compatible or deprecated, and recorded in
+4. Touched flows are covered end-to-end on success, failure, and cross-org refusal paths
+   (Principle XV), and deletion changes include the abort-case tests (Principle X).
+5. The per-change suite stays hermetic, and no check is silenced without justification
+   (Principle XVIII).
+6. External values stay out of SQL text, file paths, S3 keys, and outbound URLs; every
+   query on org data binds `org_id`; no endpoint is added or widened without its check
+   (Principles VII, XVII).
+7. Contract changes are versioned, backward compatible or deprecated, and recorded in
    `WENI-CHANGELOG.md` (Principles XIII, XIV).
-6. No secrets or personal data appear in code, logs, or error reports (Principles VI,
+8. No secrets or personal data appear in code, logs, or error reports (Principles VI,
    XII).
-7. Dependency changes pass the vulnerability check (Principle VI).
+9. Dependency changes pass the vulnerability check (Principle VI).
 
-For Speckit features, `spec.md` MUST open with the inheritance section (Principle I).
-`plan.md` MUST evaluate every principle in its Constitution Check before Phase 0 and
-again after Phase 1. Any accepted deviation MUST be justified in Complexity Tracking, and
-any divergence from the product spec MUST go through an amendment (Principle II).
+For Speckit features, `spec.md` MUST open with the inheritance section or the origin
+section (Principle I). In the full cycle, `plan.md` MUST evaluate every principle in its
+Constitution Check before Phase 0 and again after Phase 1. Any accepted deviation MUST be
+justified in Complexity Tracking, and any divergence from the product spec MUST go
+through an amendment (Principle II). In the lite cycle there is no `plan.md`: the pull
+request MUST link the `spec.md`, and the reviewer verifies the gates above against it.
 
 ## Governance
 
@@ -467,7 +678,7 @@ This constitution supersedes all other development practices in this repository.
 conflict, precedence is: VTEX CX root engineering constitution, then the backend domain
 constitution, then the project adaptations in this document. A project exception is
 valid only when stated with its justification inside the affected principle, as done in
-Principles IV, VII, XI, XII, and XIV.
+Principles IV, XI, XII, XIV, XVII, XX, and XXI.
 
 Amendments MUST be made through a pull request that edits
 `.specify/memory/constitution.md`, updates the Sync Impact Report, and follows Principle
@@ -478,8 +689,9 @@ preserved; `Last Amended` is set to the amendment date. When the base constituti
 `weni-ai/vtex-cx-engineering-constitutions` change, this document SHOULD be regenerated
 with `setup-engineering` and versioned accordingly.
 
-Compliance is verified at three points: the Constitution Check gate in every `plan.md`,
-`/speckit.analyze`, which MUST treat any conflict with a MUST as CRITICAL, and pull
-request review against the quality gates above.
+Compliance is verified at three points: the Constitution Check gate in every full-cycle
+`plan.md`, `/speckit.analyze`, which MUST treat any conflict with a MUST as CRITICAL, and
+pull request review against the quality gates above, which is the only gate for
+lite-cycle changes.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
+**Version**: 2.0.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-11-24
