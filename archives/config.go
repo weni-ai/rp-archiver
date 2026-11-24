@@ -48,6 +48,12 @@ type Config struct {
 	MaxOpenConnections int `help:"the maximum number of open connections to the database (default 2)"`
 
 	MetricsPort int `help:"the port to expose Prometheus metrics on (default 8080)"`
+
+	CallRecordingsRetentionPeriod int    `help:"the number of days to keep call recordings before deleting them, 0 disables the step, minimum 90 (default 0)"`
+	CallRecordingsBucket          string `help:"the S3 bucket holding call recordings (required when the retention period is above 0)"`
+	CallRecordingsRegion          string `help:"the S3 region of the call recordings bucket (required when the retention period is above 0)"`
+	CallRecordingsPrefix          string `help:"only call recordings under this key prefix are deleted, must end with / (default recordings/v1/)"`
+	CallRecordingsDryRun          bool   `help:"whether the call recordings retention step only lists and logs what it would delete (default false)"`
 }
 
 // NewConfig returns a new default configuration object
@@ -93,6 +99,12 @@ func NewConfig() *Config {
 		MaxOpenConnections: 2,
 
 		MetricsPort: 8080,
+
+		CallRecordingsRetentionPeriod: 0,
+		CallRecordingsBucket:          "",
+		CallRecordingsRegion:          "",
+		CallRecordingsPrefix:          "recordings/v1/",
+		CallRecordingsDryRun:          false,
 	}
 
 	return &config
