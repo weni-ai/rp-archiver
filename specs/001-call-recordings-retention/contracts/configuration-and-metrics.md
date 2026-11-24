@@ -7,8 +7,8 @@ Public interfaces under Principle XIII. All additive; release `1.7.0`.
 | Variable | Default | Behaviour |
 |---|---|---|
 | `ARCHIVER_CALL_RECORDINGS_RETENTION_PERIOD` | `0` | days; `0` disables the step (no client, no request); `1`–`89` and negatives refuse startup; `≥ 90` enables |
-| `ARCHIVER_CALL_RECORDINGS_BUCKET` | — | required when enabled |
-| `ARCHIVER_CALL_RECORDINGS_REGION` | — | required when enabled; may differ from `ARCHIVER_S3_REGION` |
+| `ARCHIVER_CALL_RECORDINGS_BUCKET` | — | required when enabled; valid S3 bucket name |
+| `ARCHIVER_CALL_RECORDINGS_REGION` | — | required when enabled; AWS region format (for example `sa-east-1`); may differ from `ARCHIVER_S3_REGION` |
 | `ARCHIVER_CALL_RECORDINGS_PREFIX` | `recordings/v1/` | only keys under it are considered; must end with `/` |
 | `ARCHIVER_CALL_RECORDINGS_DRY_RUN` | `false` | list and log, delete nothing |
 
@@ -16,7 +16,7 @@ Reused, unchanged: `ARCHIVER_AWS_ACCESS_KEY_ID`, `ARCHIVER_AWS_SECRET_ACCESS_KEY
 
 Set only on the main `weni-flows/archiver` deployment.
 
-IAM for the `archiver-secret` IAM user on the recordings bucket: `s3:ListBucket` (condition `s3:prefix` = `recordings/*`) and `s3:DeleteObject` on `<bucket>/recordings/*`. `HeadBucket` at startup is authorized by `s3:ListBucket`.
+IAM for the `archiver-secret` IAM user on the recordings bucket: `s3:ListBucket` (condition `s3:prefix` = `recordings/*`) and `s3:DeleteObject` on `<bucket>/recordings/*`. The startup check is a one-key `ListObjectsV2` under the prefix, authorized by the same prefix-conditioned `s3:ListBucket`; `HeadBucket` is not used because that condition denies it.
 
 ## Metrics (`GET /metrics` on `MetricsPort`)
 

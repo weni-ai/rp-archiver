@@ -24,7 +24,9 @@ go test -p=1 ./...
 | Listing error | `TestDeleteExpiredCallRecordings_ListError` | `Partial=true`, earlier deletions stand |
 | Batch request error | `TestDeleteExpiredCallRecordings_BatchRequestError` | batch counted as errors, next page processed |
 | Deadline | `TestDeleteExpiredCallRecordings_Deadline` | `Partial=true`, no request after deadline |
-| Startup bucket check | `TestNewCallRecordingsS3Client_BucketUnreachable` (via fake `HeadBucket`) | error returned |
+| Startup bucket check | `TestNewCallRecordingsS3Client_BucketUnreachable` (via fake `ListObjectsV2WithContext`) | error returned; one call with prefix, `MaxKeys` 1, deadline; no `HeadBucket` |
+| No signed headers in logs | `TestNewCallRecordingsS3Client_NoHeaderLogging` | no `Authorization`, `X-Amz-`, or secret in debug logs |
+| Malformed bucket or region | `TestValidateCallRecordingsConfig` | error |
 | Bounded memory | `TestDeleteExpiredCallRecordings_BoundedMemory` | allocations do not grow with 100,000 objects beyond one page |
 
 ## 2. Staging (manual)

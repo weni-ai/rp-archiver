@@ -4,7 +4,7 @@ Resolved against `main` at `ed8b25e` and the `aws-sdk-go` v1.13.47 sources (the 
 
 ## R1. S3 API surface in aws-sdk-go v1.13.47
 
-- **Decision**: use `ListObjectsV2WithContext` (manual paging with `ContinuationToken`), `DeleteObjectsWithContext` (`Quiet: true`), and the existing `TestS3` (`HeadBucket`) for the startup check.
+- **Decision**: use `ListObjectsV2WithContext` (manual paging with `ContinuationToken`), `DeleteObjectsWithContext` (`Quiet: true`), and, for the startup check, a one-key `ListObjectsV2WithContext` under the prefix with a `CommonTimeout` deadline. The existing `TestS3` is not reused because it calls `HeadBucket` without a context (known gap, Principle VIII). `HeadBucket` is not used at all because it is authorized by `s3:ListBucket` but carries no `prefix`, so the prefix-conditioned grant requested from Cloud denies it.
 - **Rationale**: all three exist in v1.13.47 (`service/s3/api.go`). Manual paging (instead of `ListObjectsV2PagesWithContext`) gives each page its own `CommonTimeout` deadline, as Principle VIII requires, and lets the loop stop cleanly on the step deadline between pages.
 - **Alternatives considered**: `ListObjectsV2PagesWithContext` takes a single context for all pages, so a per-page deadline is not possible (rejected). Upgrading the SDK is out of scope (Principle V).
 
@@ -17,7 +17,7 @@ Resolved against `main` at `ed8b25e` and the `aws-sdk-go` v1.13.47 sources (the 
 
 ## R3. Recordings client configuration
 
-- **Decision**: `NewCallRecordingsS3Client(config)` mirrors `NewS3Client` (static credentials from `AWSAccessKeyID`/`AWSSecretAccessKey`, `S3Endpoint`, `S3DisableSSL`, `S3ForcePathStyle`, and the debug `Send` handler) with `Region: CallRecordingsRegion` and `MaxRetries`. After building, it calls `TestS3(client, CallRecordingsBucket)` and returns the error instead of calling `Fatal` itself; `main.go` decides to `Fatal`.
+- **Decision**: `NewCallRecordingsS3Client(config)` takes the session settings of `NewS3Client` (static credentials from `AWSAccessKeyID`/`AWSSecretAccessKey`, `S3Endpoint`, `S3DisableSSL`, `S3ForcePathStyle`) with `Region: CallRecordingsRegion` and `MaxRetries`, built by the unexported helper `callRecordingsAWSConfig(config)` so tests can assert it. It does **not** copy the debug `Send` handler: that handler logs `r.HTTPRequest.Header` after signing, so the `Authorization` header reaches the logs, and production runs at debug level (Principle XII; recorded as a known gap in the constitution). If a debug line is wanted, it logs only `service` and `operation`. `CheckCallRecordingsBucket(client, config)` runs `ListObjectsV2WithContext` (`Prefix`, `MaxKeys: 1`) with a `CommonTimeout` deadline (R1) and returns the error instead of calling `Fatal`; `main.go` decides to `Fatal`.
 - **Rationale**: 013 prescribes "a second S3 client for the recordings region with the same credentials it already uses". Production already signs regional buckets through the global endpoint (`https://s3.amazonaws.com` + `sa-east-1`). Returning the error makes the startup path testable with the fake. The existing `NewS3Client` keeps its own `Fatal` (unchanged, Principle V).
 - **Alternatives considered**: (a) Use the AWS default chain (IRSA) for the new client. The deployments do set `serviceAccountName: flows`, but this would make the "archiver identity" differ between clients, contradicting 013's "same credentials", so it was rejected. (b) Refactor `NewS3Client` to take a region parameter. That changes the archive client for no functional need (Principle V), so it was rejected.
 
@@ -42,7 +42,7 @@ Resolved against `main` at `ed8b25e` and the `aws-sdk-go` v1.13.47 sources (the 
 ## R7. Scheduling inside the existing loop
 
 - **Decision**: `retentionScheduler` in `cmd/rp-archiver/retention.go` with:
-  - `StartForCycle(cycleStart time.Time, run func(ctx context.Context))`: starts `run` in a goroutine with a `callRecordingsRetentionTimeout` context, unless it already started for this cycle, and tracks it in a `sync.WaitGroup`.
+  - `StartForCycle(cycleStart time.Time, run func(ctx context.Context))`: starts `run` in a goroutine with a `CallRecordingsRetentionTimeout` context, unless it already started for this cycle, and tracks it in a `sync.WaitGroup`.
   - `NextCycle()`: clears the flag before the loop sleeps.
   - `Wait()`: used before `break` when `ExitOnCompletion` is set.
 
@@ -71,5 +71,5 @@ Resolved against `main` at `ed8b25e` and the `aws-sdk-go` v1.13.47 sources (the 
 
 ## R10. Fake S3 for tests
 
-- **Decision**: `fakeRecordingsS3` in `call_recordings_test.go` embeds `s3iface.S3API` (nil) and implements `ListObjectsV2WithContext` (paging over a sorted in-memory map, with a configurable page size and injectable errors), `DeleteObjectsWithContext` (removes keys and returns injectable per-key errors or a request error), and `HeadBucketWithContext`/`HeadBucket` (injectable error). Calling any other method panics, so unexpected calls show up in tests.
+- **Decision**: `fakeRecordingsS3` in `call_recordings_test.go` embeds `s3iface.S3API` (nil) and implements `ListObjectsV2WithContext` (paging over a sorted in-memory map, with a configurable page size and injectable errors) and `DeleteObjectsWithContext` (removes keys and returns injectable per-key errors or a request error). The startup check goes through the same `ListObjectsV2WithContext`. Calling any other method panics, so unexpected calls show up in tests.
 - **Rationale**: Principle XVIII (hermetic, through `s3iface.S3API`); the age filter, prefix guard, and batching run unmocked.

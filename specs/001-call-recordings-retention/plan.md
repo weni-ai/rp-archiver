@@ -12,7 +12,7 @@ Add a recordings retention step to the archiver's daily cycle. When `ARCHIVER_CA
 
 **Language/Version**: Go 1.23.0 (`go.mod`)
 
-**Primary Dependencies**: `github.com/aws/aws-sdk-go` v1.13.47 (`ListObjectsV2WithContext`, `DeleteObjectsWithContext`, `HeadBucketWithContext`, `aws.Config.MaxRetries` all available), `github.com/nyaruka/ezconf`, `github.com/sirupsen/logrus`, `github.com/prometheus/client_golang` (`promauto`), `github.com/stretchr/testify`. No new module.
+**Primary Dependencies**: `github.com/aws/aws-sdk-go` v1.13.47 (`ListObjectsV2WithContext`, `DeleteObjectsWithContext`, `aws.Config.MaxRetries` all available), `github.com/nyaruka/ezconf`, `github.com/sirupsen/logrus`, `github.com/prometheus/client_golang` (`promauto`), `github.com/stretchr/testify`. No new module.
 
 **Storage**: S3 recordings bucket (read listing, delete). No PostgreSQL access in this step.
 
@@ -39,13 +39,13 @@ Add a recordings retention step to the archiver's daily cycle. When `ARCHIVER_CA
 | III. Version Control and Review | PASS | PASS |
 | IV. Commit Messages | PASS | PASS |
 | V. Contained Changes | PASS: archive client, org flow, `ExitOnCompletion` for orgs untouched | PASS: `main.go` diff limited to startup block, cycle-top trigger, and the exit wait |
-| VI. Security and Secrets | PASS with justified exception: shared static-key IAM user | PASS: no new secret, defaults stay placeholders/empty |
-| VII. Never Trust the Client | PASS: startup validation, prefix guard on listed keys | PASS: `ValidateCallRecordingsConfig` table-tested |
-| VIII. Fail Gracefully and Predictably | PASS: deadlines on every S3 call; `Fatal` only at startup | PASS: `CommonTimeout` per page or batch inside the step deadline |
+| VI. Security and Secrets | PASS with justified exception: shared static-key IAM user | PASS: no new secret, defaults stay placeholders/empty; the new client has no header-logging handler |
+| VII. Never Trust the Client | PASS: startup validation with format rules, prefix guard on listed keys | PASS: `ValidateCallRecordingsConfig` table-tested, including malformed bucket and region |
+| VIII. Fail Gracefully and Predictably | PASS: deadlines on every S3 call; `Fatal` only at startup | PASS: `CommonTimeout` per page or batch inside the step deadline; startup check is a one-key `ListObjectsV2WithContext` under the prefix with `CommonTimeout` (context-free `TestS3` not reused) |
 | IX. Bounded Retry Over REST | PASS: `MaxRetries` explicit; 4xx not retried by SDK v1.13.47 | PASS (research R2) |
 | X. Verified Archive Before Deletion | N/A to RapidPro records; equivalent guards planned | PASS: floor, strict cutoff, prefix guard, dry run, abort tests |
 | XI. Scalability and Peak Load | PASS: peak declared; no state outlives the step | PASS |
-| XII. Observability and Diagnosable Errors | PASS with justified exception: no `org_id`; key + `cycle_start` | PASS |
+| XII. Observability and Diagnosable Errors | PASS with justified exception: no `org_id`; key + `cycle_start` | PASS: no signed headers or credentials logged by the new client; one error log per failure |
 | XIII. Versioned Contracts | PASS: additive config and metrics, `1.7.0` | PASS (`contracts/`) |
 | XIV. Changelog Maintenance | PASS: `WENI-CHANGELOG.md` | PASS |
 | XV. Tests Exercise Flows | PASS with justified exception: no PostgreSQL layer in this flow | PASS (`quickstart.md`) |
@@ -81,7 +81,8 @@ specs/001-call-recordings-retention/
 archives/
 ├── config.go                    # + five CallRecordings* fields and defaults
 ├── call_recordings.go           # new: constants, ValidateCallRecordingsConfig,
-│                                #      NewCallRecordingsS3Client, DeleteExpiredCallRecordings,
+│                                #      callRecordingsAWSConfig, NewCallRecordingsS3Client,
+│                                #      CheckCallRecordingsBucket, DeleteExpiredCallRecordings,
 │                                #      CallRecordingsSummary
 ├── call_recordings_test.go      # new: flow + unit tests, fake s3iface.S3API
 └── metrics.go                   # + five archiver_call_recordings_* metrics
@@ -118,7 +119,7 @@ WENI-CHANGELOG.md                # 1.7.0 entry
 1. **Config fields, defaults, validation** (`config.go`, `ValidateCallRecordingsConfig`): everything else reads them; scenarios 3.3–3.5 are pure validation.
 2. **Retention step** (`DeleteExpiredCallRecordings`, constants, summary): the deletion logic and its abort tests (3.1, 3.2, 3.6–3.8) against the fake, before any wiring.
 3. **Metrics** (`metrics.go`): incremented by step 2; asserted in its tests.
-4. **Client and startup** (`NewCallRecordingsS3Client`, `TestS3` reuse): FR-030 path.
+4. **Client and startup** (`NewCallRecordingsS3Client`, `CheckCallRecordingsBucket` with a one-key `ListObjectsV2WithContext` under the prefix): FR-030 path. No header-logging handler on the new client.
 5. **Scheduling** (`cmd/rp-archiver/retention.go`, `main.go`): once per cycle, independent of orgs, wait on `ExitOnCompletion` (3.9).
 6. **Docs and changelog** (`README.md`, `WENI-CHANGELOG.md` `1.7.0`).
 7. **Release**: PR to `main`; `c49e2e2` lands on `main` in its own PR before the `1.7.0` production tag; `-staging` tag for staging validation.

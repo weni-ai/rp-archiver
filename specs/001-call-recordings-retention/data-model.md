@@ -7,8 +7,8 @@ No database entity. The step reads S3 listings and keeps only per-run, in-memory
 | Field | Env var | Default (`NewConfig()`) | Validation |
 |---|---|---|---|
 | `CallRecordingsRetentionPeriod int` | `ARCHIVER_CALL_RECORDINGS_RETENTION_PERIOD` | `0` | `< 0` → error; `1..89` → error; `0` → disabled; `≥ 90` → enabled |
-| `CallRecordingsBucket string` | `ARCHIVER_CALL_RECORDINGS_BUCKET` | `""` | non-blank when enabled |
-| `CallRecordingsRegion string` | `ARCHIVER_CALL_RECORDINGS_REGION` | `""` | non-blank when enabled |
+| `CallRecordingsBucket string` | `ARCHIVER_CALL_RECORDINGS_BUCKET` | `""` | when enabled: S3 bucket name, `^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$` |
+| `CallRecordingsRegion string` | `ARCHIVER_CALL_RECORDINGS_REGION` | `""` | when enabled: AWS region, `^[a-z]{2}(-[a-z]+)+-[0-9]+$` |
 | `CallRecordingsPrefix string` | `ARCHIVER_CALL_RECORDINGS_PREFIX` | `recordings/v1/` | when enabled: non-blank, ends with `/`, no leading `/`, no `..` segment |
 | `CallRecordingsDryRun bool` | `ARCHIVER_CALL_RECORDINGS_DRY_RUN` | `false` | — |
 
@@ -19,11 +19,21 @@ No database entity. The step reads S3 listings and keeps only per-run, in-memory
 | `MinCallRecordingsRetentionDays` | 90 | floor enforced in code (BD-004, NFR-002) |
 | `callRecordingsListPageSize` | 1000 | `MaxKeys` per `ListObjectsV2` |
 | `callRecordingsDeleteBatchSize` | 1000 | `DeleteObjects` maximum |
-| `callRecordingsRetentionTimeout` | 1 h | step deadline |
+| `CallRecordingsRetentionTimeout` | 1 h | step deadline; exported because `cmd/rp-archiver/retention.go` reads it |
 | `callRecordingsS3MaxRetries` | 3 | SDK `MaxRetries` on the recordings client |
 | `callRecordingsDryRunSampleSize` | 10 | oldest keys logged in dry run |
 
 Per-request deadlines reuse `Config.CommonTimeout` (minutes).
+
+## Functions (`archives/call_recordings.go`)
+
+| Function | Purpose |
+|---|---|
+| `ValidateCallRecordingsConfig(config) error` | startup validation (table above) |
+| `callRecordingsAWSConfig(config) *aws.Config` | unexported; static credentials, archive endpoint/SSL/path-style, `CallRecordingsRegion`, `MaxRetries`; asserted in tests |
+| `NewCallRecordingsS3Client(config) (s3iface.S3API, error)` | session from `callRecordingsAWSConfig`; no header-logging handler |
+| `CheckCallRecordingsBucket(client, config) error` | `ListObjectsV2WithContext` (`Prefix`, `MaxKeys: 1`) with `CommonTimeout`; error returned, never `Fatal` |
+| `DeleteExpiredCallRecordings(ctx, now, config, client) (CallRecordingsSummary, error)` | the retention step |
 
 ## CallRecordingsSummary (returned by `DeleteExpiredCallRecordings`, logged once)
 

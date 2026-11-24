@@ -35,16 +35,17 @@ description: "Task list for the call recordings retention step"
   - It embeds `s3iface.S3API` (nil).
   - It implements `ListObjectsV2WithContext`: sorted in-memory objects with key, `LastModified`, and size; configurable page size; `ContinuationToken` handling; an injectable error on the Nth call.
   - It implements `DeleteObjectsWithContext`: removes keys, records the batch sizes, supports injectable per-key errors and an injectable request error, and fails the test if a batch exceeds 1,000 keys.
-  - It implements `HeadBucket` and `HeadBucketWithContext` with an injectable error.
-  - Any other method panics.
+  - It records the `ListObjectsV2Input` of every call (prefix, `MaxKeys`) and whether the context had a deadline.
+  - Any other method panics, including `HeadBucket`.
 - [ ] T003 [P] Write `TestValidateCallRecordingsConfig` in `archives/call_recordings_test.go` as a table test:
   - Period `0` with empty fields is valid.
   - Periods `-1`, `1`, and `89` are errors, and the message names the minimum 90.
   - Period `90` with a bucket, region, and the default prefix is valid.
   - With period `90`, each of these is an error: blank bucket, blank region, empty prefix, prefix without a trailing `/`, prefix with a leading `/`, prefix containing `..`.
+  - With period `90`, malformed values are errors: bucket `My_Bucket`, `ab`, `-bucket`, and `bucket/x`; region `sa east 1`, `SA-EAST-1`, and `https://s3.amazonaws.com`. `us-gov-west-1` and `sa-east-1` are valid regions.
 - [ ] T004 Implement `archives/call_recordings.go`:
-  - Constants: `MinCallRecordingsRetentionDays = 90`, `callRecordingsListPageSize = 1000`, `callRecordingsDeleteBatchSize = 1000`, `callRecordingsRetentionTimeout = time.Hour`, `callRecordingsS3MaxRetries = 3`, `callRecordingsDryRunSampleSize = 10`.
-  - `ValidateCallRecordingsConfig(config *Config) error`, per data-model.md. A negative period, or 1..89, is an error. With a period ≥ 90 the bucket and region are non-blank, and the prefix ends with `/`, has no leading `/`, and has no `..` segment.
+  - Constants: `MinCallRecordingsRetentionDays = 90`, `callRecordingsListPageSize = 1000`, `callRecordingsDeleteBatchSize = 1000`, `CallRecordingsRetentionTimeout = time.Hour`, `callRecordingsS3MaxRetries = 3`, `callRecordingsDryRunSampleSize = 10`.
+  - `ValidateCallRecordingsConfig(config *Config) error`, per data-model.md. A negative period, or 1..89, is an error. With a period ≥ 90 the bucket matches the S3 bucket-name pattern and the region matches the AWS region pattern (both from data-model.md, compiled once as package-level `regexp` values), and the prefix ends with `/`, has no leading `/`, and has no `..` segment.
   - Depends on T001 and T003.
 - [ ] T005 Add five `promauto` metrics with doc comments to `archives/metrics.go`, with no labels:
   - counters `archiver_call_recordings_scanned_total`, `archiver_call_recordings_deleted_total`, `archiver_call_recordings_deleted_bytes_total`, `archiver_call_recordings_delete_errors_total`;
@@ -76,13 +77,14 @@ description: "Task list for the call recordings retention step"
   - `TestDeleteExpiredCallRecordings_Deadline`: a context expired between pages gives `Partial=true` with no request after the deadline, and `last_run_timestamp_seconds` is still set.
   - `TestDeleteExpiredCallRecordings_BoundedMemory`: 100,000 objects; the pending batch never exceeds 1,000 and the sample never exceeds 10, checked by fake-side assertions.
 - [ ] T008 [P] [US3] Write `TestNewCallRecordingsS3Client_BucketUnreachable` and `TestNewCallRecordingsS3Client_Config` in `archives/call_recordings_test.go`:
-  - A `HeadBucket` error is returned (not `Fatal`) through the exported check function `CheckCallRecordingsBucket(client, config)`.
+  - A listing error is returned (not `Fatal`) through the exported check function `CheckCallRecordingsBucket(client, config)`. The fake records exactly one `ListObjectsV2WithContext` call with the configured prefix, `MaxKeys` 1, and a context deadline, and no `HeadBucket` call.
+  - `TestNewCallRecordingsS3Client_NoHeaderLogging`: with logrus at debug level and a test hook, a request sent through the built client against an `httptest` server produces no log entry containing `Authorization`, `X-Amz-`, or the fake secret key.
   - The built `aws.Config` has `Region == CallRecordingsRegion`, `MaxRetries == 3`, and the same endpoint and SSL/path-style settings as the archive client. Expose an unexported `callRecordingsAWSConfig(config)` helper for this assertion.
 - [ ] T009 [P] [US3] Write `cmd/rp-archiver/retention_test.go` with a fake step function:
   - `TestRetentionScheduler_OncePerCycle`: two `StartForCycle` calls in the same cycle (the org-fetch retry path) run the step once; after `NextCycle` it runs again.
   - `TestRetentionScheduler_IndependentOfOrgs`: a step that returns an error does not affect the caller's continuation; `Wait` returns after the step ends.
   - `TestRetentionScheduler_DisabledNeverRuns`: a nil step (period 0) never starts a goroutine (3.4).
-  - `TestRetentionScheduler_Timeout`: the context passed to the step has a deadline of `callRecordingsRetentionTimeout`.
+  - `TestRetentionScheduler_Timeout`: the context passed to the step has a deadline of `CallRecordingsRetentionTimeout`.
 
 ### Implementation for User Story 3
 
@@ -98,22 +100,23 @@ description: "Task list for the call recordings retention step"
   - One summary log, `call recordings retention completed`, with all fields from contracts.
   - Errors are wrapped with `errors.Wrap`.
   - Depends on T002, T004, T005, T006, and T007.
-- [ ] T011 [US3] Implement `NewCallRecordingsS3Client(config *Config) (s3iface.S3API, error)` and `CheckCallRecordingsBucket(client s3iface.S3API, config *Config) error` (which reuses `TestS3`) in `archives/call_recordings.go`:
+- [ ] T011 [US3] Implement `callRecordingsAWSConfig(config *Config) *aws.Config`, `NewCallRecordingsS3Client(config *Config) (s3iface.S3API, error)`, and `CheckCallRecordingsBucket(client s3iface.S3API, config *Config) error` in `archives/call_recordings.go`:
   - Static credentials from `AWSAccessKeyID`/`AWSSecretAccessKey`, plus `S3Endpoint`, `S3DisableSSL`, `S3ForcePathStyle`, `Region: CallRecordingsRegion`, and `MaxRetries: aws.Int(callRecordingsS3MaxRetries)` (research R3).
-  - The same debug `Send` handler as `NewS3Client`.
-  - No `Fatal` inside the function.
+  - Do **not** copy the debug `Send` handler of `NewS3Client`: it logs signed request headers (Principle XII). If a debug line is added, it carries only `service` and `operation`.
+  - `CheckCallRecordingsBucket` runs `ListObjectsV2WithContext` with `Prefix: CallRecordingsPrefix`, `MaxKeys: 1`, and a `CommonTimeout` deadline. It does not reuse `TestS3` and does not call `HeadBucket` (research R1).
+  - No `Fatal` inside these functions.
   - `NewS3Client` is unchanged.
   - Depends on T008.
 - [ ] T012 [US3] Implement `retentionScheduler` in `cmd/rp-archiver/retention.go`:
   - `startedThisCycle bool` and `wg sync.WaitGroup`.
-  - `StartForCycle(cycleStart time.Time, step func(ctx context.Context))` creates a `context.WithTimeout(context.Background(), archives.CallRecordingsRetentionTimeout)` and starts one goroutine. Export the constant, or pass it in, so the constant has a single source.
+  - `StartForCycle(cycleStart time.Time, step func(ctx context.Context))` creates a `context.WithTimeout(context.Background(), archives.CallRecordingsRetentionTimeout)` and starts one goroutine. The constant is exported from `archives` (data-model.md) so it has a single source.
   - `NextCycle()` and `Wait()`.
   - It does nothing when the step is nil.
   - Depends on T009.
 - [ ] T013 [US3] Wire `cmd/rp-archiver/main.go`:
   - After loading config, `ValidateCallRecordingsConfig`, with `logrus.Fatal` on error.
   - If the period is > 0: `NewCallRecordingsS3Client` + `CheckCallRecordingsBucket`, with `logrus.WithError(err).Fatal("call recordings bucket not reachable")` on failure, and the startup log `call recordings retention enabled` with `retention_days`, `bucket`, `prefix`, `dry_run`. This is independent of `UploadToS3`.
-  - In the loop, right after `archives.ResetCycleMetrics()`, call `scheduler.StartForCycle(start, step)`, where `step` calls `DeleteExpiredCallRecordings(ctx, time.Now(), config, recordingsClient)` and logs a returned error at error level.
+  - In the loop, right after `archives.ResetCycleMetrics()`, call `scheduler.StartForCycle(start, step)`, where `step` calls `DeleteExpiredCallRecordings(ctx, time.Now(), config, recordingsClient)` and logs a returned error at warning level. The step already logged the failure at error level, so Sentry gets one event per failure.
   - Call `scheduler.Wait()` before `break` when `ExitOnCompletion` is set, and `scheduler.NextCycle()` before the daily sleep.
   - Do not touch the org dispatch, org fetch, or the archive client (Principle V).
   - Depends on T010, T011, and T012.
@@ -179,4 +182,4 @@ Task: "T009 scheduler tests in cmd/rp-archiver/retention_test.go"
 
 - Commits use Conventional Commits of at most 50 characters, for example `feat: add call recordings retention config` and `test: cover call recordings retention`.
 - Never read object metadata; keys only, because they hold no phone numbers.
-- Never log credentials. The debug `Send` handler already exists. Do not add header logging.
+- Never log credentials or request headers. The recordings client does not reuse the debug `Send` handler of `NewS3Client`, which logs signed headers. Fixing that handler is a separate change, outside this spec (Principle V).
