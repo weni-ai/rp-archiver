@@ -181,7 +181,7 @@ Every S3 call carries a context deadline (`CommonTimeout` per page or batch, ins
 - Deployment changes, handed to Cloud (`kubernetes-manifests-platform`, `weni-flows/archiver` only):
   - `ARCHIVER_CALL_RECORDINGS_RETENTION_PERIOD` (≥ 90; production value is a product decision), `ARCHIVER_CALL_RECORDINGS_BUCKET`, `ARCHIVER_CALL_RECORDINGS_REGION`, `ARCHIVER_CALL_RECORDINGS_DRY_RUN=true` for the first cycle; `ARCHIVER_CALL_RECORDINGS_PREFIX` only if different from `recordings/v1/`.
   - Nothing on `archiver-orgs-inactives` or `archiver-proj-inactives`.
-- Order: ship with period `0` (no behaviour change) → staging, after the bucket exists: enable with dry run, check the summary log, then disable dry run; prove deletion with a one-shot run on a test prefix → production: enable with dry run until the first objects pass the retention period, then disable dry run.
+- Order: ship with period `0` (no behaviour change) → staging, after the bucket exists: enable with dry run, check the summary log, then disable dry run; prove deletion with a one-shot run on a prefix holding disposable objects older than 90 days, with `ARCHIVER_ARCHIVE_MESSAGES=false` and `ARCHIVER_ARCHIVE_RUNS=false` in that pod so it never archives or deletes records alongside the main deployment (Principle XI) → production: enable with dry run until the first objects pass the retention period, then disable dry run.
 - Rollback: `ARCHIVER_CALL_RECORDINGS_RETENTION_PERIOD=0` stops deletion without a deploy. Raising the period keeps remaining objects longer; deleted objects do not come back. Previous image ignores the new variables.
 
 ## Constitution Alignment
