@@ -172,7 +172,7 @@ Every S3 call carries a context deadline (`CommonTimeout` per page or batch, ins
 | Config | Period 0 with empty fields → valid, no client built and no request to the fake (3.4); 1, 89 → error; 90 → valid (3.3); period > 0 without bucket, region, or with empty / leading-slash prefix → error (3.5); malformed bucket name or region → error; negative → error |
 | Startup | `CheckCallRecordingsBucket` with a failing fake `ListObjectsV2WithContext` → error returned, not `Fatal`; the call carries a deadline, the configured prefix, and `MaxKeys` 1 |
 | Scheduling | The once-per-cycle guard and the `ExitOnCompletion` wait are extracted into a small function in `cmd/rp-archiver` and tested with a fake step: org-fetch retry does not run the step twice; step failure does not stop org dispatch (3.9) |
-| Metrics | Counter and gauge deltas asserted with `testutil` |
+| Metrics | Counter and gauge deltas read through `client_model` (`Metric.Write`); `prometheus/testutil` is avoided because it adds a module to `go.mod` |
 | Stubbed at the boundary | S3 only, through the fake `s3iface.S3API` (Principle XVIII). No live S3, no AWS credentials. The age filter, prefix check, and batching are the subject and are never mocked |
 | Integration (manual, staging) | One-shot run with `ARCHIVER_EXIT_ON_COMPLETION=true` against a test prefix containing objects older than 90 days, as the inherited rollout prescribes |
 

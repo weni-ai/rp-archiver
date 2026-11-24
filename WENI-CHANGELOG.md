@@ -1,3 +1,9 @@
+1.7.0
+----------
+ * feat: call recordings retention step
+ * feat: ARCHIVER_CALL_RECORDINGS_* configuration
+ * feat: archiver_call_recordings_* metrics
+
 1.6.0
 ----------
  * feat: archiving by org priorization

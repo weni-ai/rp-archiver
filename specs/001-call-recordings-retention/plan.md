@@ -16,7 +16,7 @@ Add a recordings retention step to the archiver's daily cycle. When `ARCHIVER_CA
 
 **Storage**: S3 recordings bucket (read listing, delete). No PostgreSQL access in this step.
 
-**Testing**: `go test -p=1 ./...`; fake implementing `s3iface.S3API` (embedded interface, overriding the three methods used); `prometheus/testutil` for metric deltas
+**Testing**: `go test -p=1 ./...`; fake implementing `s3iface.S3API` (embedded interface, overriding the three methods used); metric deltas read with `Metric.Write` into `client_model` (`testutil` would add a module)
 
 **Target Platform**: Linux container (`weni-flows/archiver`), single instance per RapidPro database
 

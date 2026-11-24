@@ -46,6 +46,23 @@ Recommended settings for error reporting:
 
  * `ARCHIVER_SENTRY_DSN`: The DSN to use when logging errors to Sentry
 
+# Call Recordings Retention
+
+Once per archiving cycle, Archiver can delete telephony call recordings whose upload time is older than a retention period. The step is disabled by default and runs independently of message and run archival:
+
+ * `ARCHIVER_CALL_RECORDINGS_RETENTION_PERIOD`: Days to keep call recordings. `0` disables the step (default 0). Values from 1 to 89 refuse startup
+ * `ARCHIVER_CALL_RECORDINGS_BUCKET`: The S3 bucket holding the recordings (required when the period is above 0)
+ * `ARCHIVER_CALL_RECORDINGS_REGION`: The region of that bucket, which may differ from `ARCHIVER_S3_REGION` (required when the period is above 0)
+ * `ARCHIVER_CALL_RECORDINGS_PREFIX`: Only keys under this prefix are deleted; must end with `/` (default "recordings/v1/")
+ * `ARCHIVER_CALL_RECORDINGS_DRY_RUN`: List and log what would be deleted without deleting anything (default false)
+
+Operational notes:
+
+ * Set these options on a single deployment only. Instances that archive inactive orgs keep the period at `0`.
+ * Run the first cycle with `ARCHIVER_CALL_RECORDINGS_DRY_RUN=true` and check the `call recordings retention completed` log line.
+ * The step signs requests with `ARCHIVER_AWS_ACCESS_KEY_ID` / `ARCHIVER_AWS_SECRET_ACCESS_KEY`. That IAM user needs `s3:ListBucket` restricted to the recordings prefix and `s3:DeleteObject` on `<bucket>/recordings/*`. The startup check lists one key under the prefix, so no other permission is needed.
+ * If the bucket is versioned, deletions only add delete markers; the bucket needs a noncurrent-version expiration rule.
+
 # Development
 
 Once you've checked out the code, you can build Archiver with:

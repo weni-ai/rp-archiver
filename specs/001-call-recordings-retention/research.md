@@ -42,7 +42,7 @@ Resolved against `main` at `ed8b25e` and the `aws-sdk-go` v1.13.47 sources (the 
 ## R7. Scheduling inside the existing loop
 
 - **Decision**: `retentionScheduler` in `cmd/rp-archiver/retention.go` with:
-  - `StartForCycle(cycleStart time.Time, run func(ctx context.Context))`: starts `run` in a goroutine with a `CallRecordingsRetentionTimeout` context, unless it already started for this cycle, and tracks it in a `sync.WaitGroup`.
+  - `newRetentionScheduler(step func(ctx context.Context, cycleStart time.Time))` and `StartForCycle(cycleStart time.Time)`: starts `step` in a goroutine with a `CallRecordingsRetentionTimeout` context, unless it already started for this cycle or a previous run is still in flight, and tracks it in a `sync.WaitGroup`. The step receives the cycle start, which becomes the `now` of `DeleteExpiredCallRecordings` and the `cycle_start` log field.
   - `NextCycle()`: clears the flag before the loop sleeps.
   - `Wait()`: used before `break` when `ExitOnCompletion` is set.
 
