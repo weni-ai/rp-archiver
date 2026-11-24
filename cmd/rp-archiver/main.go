@@ -51,6 +51,10 @@ func main() {
 		logrus.StandardLogger().Hooks.Add(hook)
 	}
 
+	if err := archives.ValidateCallRecordingsConfig(config); err != nil {
+		logrus.WithError(err).Fatal("invalid call recordings configuration")
+	}
+
 	// our settings shouldn't contain a timezone, nothing will work right with this not being a constant UTC
 	if strings.Contains(config.DB, "TimeZone") {
 		logrus.WithField("db", config.DB).Fatalf("invalid db connection string, do not specify a timezone, archiver always uses UTC")
@@ -76,6 +80,33 @@ func main() {
 			logrus.WithError(err).Fatal("unable to initialize s3 client")
 		}
 	}
+
+	// the call recordings step is independent of archive uploads and runs only on the deployment
+	// that sets a retention period
+	var retentionStep func(ctx context.Context, cycleStart time.Time)
+	if config.CallRecordingsRetentionPeriod > 0 {
+		recordingsClient, err := archives.NewCallRecordingsS3Client(config)
+		if err != nil {
+			logrus.WithError(err).Fatal("unable to initialize call recordings s3 client")
+		}
+		if err := archives.CheckCallRecordingsBucket(recordingsClient, config); err != nil {
+			logrus.WithError(err).WithField("bucket", config.CallRecordingsBucket).Fatal("call recordings bucket not reachable")
+		}
+		logrus.WithFields(logrus.Fields{
+			"retention_days": config.CallRecordingsRetentionPeriod,
+			"bucket":         config.CallRecordingsBucket,
+			"prefix":         config.CallRecordingsPrefix,
+			"dry_run":        config.CallRecordingsDryRun,
+		}).Info("call recordings retention enabled")
+
+		retentionStep = func(ctx context.Context, cycleStart time.Time) {
+			// failures are already logged at error level inside the step
+			if _, err := archives.DeleteExpiredCallRecordings(ctx, cycleStart, config, recordingsClient); err != nil {
+				logrus.WithError(err).WithField("component", "call_recordings_retention").Warn("call recordings retention did not complete")
+			}
+		}
+	}
+	retention := newRetentionScheduler(retentionStep)
 
 	// ensure that we can actually write to the temp directory
 	err = archives.EnsureTempArchiveDirectory(config.TempDir)
@@ -144,6 +175,7 @@ func main() {
 		start := time.Now().In(time.UTC)
 
 		archives.ResetCycleMetrics()
+		retention.StartForCycle(start)
 
 		// convert the starttime to time.Time
 		layout := "15:04"
@@ -186,8 +218,10 @@ func main() {
 
 		// ok, we did all our work for our orgs, quit if so configured or sleep until the next day
 		if config.ExitOnCompletion {
+			retention.Wait()
 			break
 		}
+		retention.NextCycle()
 
 		// build up our next start
 		now := time.Now().In(time.UTC)

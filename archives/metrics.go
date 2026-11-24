@@ -122,6 +122,39 @@ var (
 		Name: "archiver_broadcasts_deleted_total",
 		Help: "Total number of broadcasts deleted from the database",
 	})
+
+	// --- Call recordings retention metrics ----------------------------------------
+	// Not reset by ResetCycleMetrics: they are counters across cycles.
+
+	// CallRecordingsScannedTotal counts objects listed under the call recordings prefix.
+	CallRecordingsScannedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "archiver_call_recordings_scanned_total",
+		Help: "Total number of call recording objects listed under the retention prefix",
+	})
+
+	// CallRecordingsDeletedTotal counts call recording objects deleted (never incremented in dry run).
+	CallRecordingsDeletedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "archiver_call_recordings_deleted_total",
+		Help: "Total number of call recording objects deleted by the retention step",
+	})
+
+	// CallRecordingsDeletedBytesTotal counts the bytes of deleted call recording objects.
+	CallRecordingsDeletedBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "archiver_call_recordings_deleted_bytes_total",
+		Help: "Total bytes of call recording objects deleted by the retention step",
+	})
+
+	// CallRecordingsDeleteErrorsTotal counts keys that failed to delete, per key or as part of a failed batch.
+	CallRecordingsDeleteErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "archiver_call_recordings_delete_errors_total",
+		Help: "Total number of call recording keys that failed to delete",
+	})
+
+	// CallRecordingsLastRunTimestamp is the Unix time at which the last retention step ended, complete or partial.
+	CallRecordingsLastRunTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "archiver_call_recordings_last_run_timestamp_seconds",
+		Help: "Unix time in seconds at which the last call recordings retention step ended",
+	})
 )
 
 // ResetCycleMetrics zeroes all per-cycle gauges at the start of a new archiving cycle.
